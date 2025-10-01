@@ -9,6 +9,7 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.SwitchCompat
+import androidx.lifecycle.lifecycleScope
 import com.laurelid.R
 import com.laurelid.config.AdminConfig
 import com.laurelid.config.AdminPinManager
@@ -17,6 +18,7 @@ import com.laurelid.config.EncryptedAdminPinStorage
 import com.laurelid.integrity.PlayIntegrityGate
 import com.laurelid.network.TrustListEndpointPolicy
 import com.laurelid.util.KioskUtil
+import kotlinx.coroutines.launch
 
 class AdminActivity : AppCompatActivity() {
 
@@ -30,12 +32,19 @@ class AdminActivity : AppCompatActivity() {
         configManager = ConfigManager(applicationContext)
         adminPinManager = AdminPinManager(EncryptedAdminPinStorage(applicationContext))
 
-        if (!PlayIntegrityGate.isAdminAccessAllowed(this)) {
-            Toast.makeText(this, R.string.play_integrity_blocked, Toast.LENGTH_LONG).show()
-            finish()
-            return
+        lifecycleScope.launch {
+            val allowed = PlayIntegrityGate.isAdminAccessAllowed(this@AdminActivity)
+            if (!allowed) {
+                Toast.makeText(
+                    this@AdminActivity,
+                    R.string.play_integrity_blocked,
+                    Toast.LENGTH_LONG,
+                ).show()
+                finish()
+            } else {
+                bindConfig()
+            }
         }
-        bindConfig()
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {

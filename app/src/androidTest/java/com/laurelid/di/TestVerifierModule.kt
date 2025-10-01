@@ -5,9 +5,9 @@ import com.laurelid.auth.ParsedMdoc
 import com.laurelid.auth.VerifierService
 import com.laurelid.data.VerificationResult
 import com.laurelid.config.AdminConfig
-import com.laurelid.network.RetrofitModule
 import com.laurelid.network.TrustListApi
 import com.laurelid.network.TrustListRepository
+import com.laurelid.network.TrustListEndpointPolicy
 import com.laurelid.util.LogManager
 import dagger.Module
 import dagger.Provides
@@ -35,7 +35,7 @@ object TestVerifierModule {
 
     @Provides
     @Named("trustListBaseUrl")
-    fun provideTrustListBaseUrl(): String = RetrofitModule.DEFAULT_BASE_URL
+    fun provideTrustListBaseUrl(): String = TrustListEndpointPolicy.defaultBaseUrl
 
     @Provides
     @Singleton
@@ -68,10 +68,10 @@ private class FakeTrustListRepository(
     cacheDir = File(context.cacheDir, "fake_trust_list"),
     defaultMaxAgeMillis = Long.MAX_VALUE,
     ioDispatcher = Dispatchers.IO,
-    initialBaseUrl = RetrofitModule.DEFAULT_BASE_URL,
+    initialBaseUrl = TrustListEndpointPolicy.defaultBaseUrl,
 ) {
     private var snapshot: Snapshot = Snapshot(emptyMap(), stale = false)
-    private var baseUrl: String = RetrofitModule.DEFAULT_BASE_URL
+    private var baseUrl: String = TrustListEndpointPolicy.defaultBaseUrl
 
     fun setEntries(newEntries: Map<String, String>, stale: Boolean = false) {
         entries.clear()

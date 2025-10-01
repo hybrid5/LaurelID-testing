@@ -14,6 +14,8 @@ import com.laurelid.config.AdminConfig
 import com.laurelid.config.AdminPinManager
 import com.laurelid.config.ConfigManager
 import com.laurelid.config.EncryptedAdminPinStorage
+import com.laurelid.integrity.PlayIntegrityGate
+import com.laurelid.network.TrustListEndpointPolicy
 import com.laurelid.util.KioskUtil
 
 class AdminActivity : AppCompatActivity() {
@@ -27,6 +29,12 @@ class AdminActivity : AppCompatActivity() {
         KioskUtil.applyKioskDecor(window)
         configManager = ConfigManager(applicationContext)
         adminPinManager = AdminPinManager(EncryptedAdminPinStorage(applicationContext))
+
+        if (!PlayIntegrityGate.isAdminAccessAllowed(this)) {
+            Toast.makeText(this, R.string.play_integrity_blocked, Toast.LENGTH_LONG).show()
+            finish()
+            return
+        }
         bindConfig()
     }
 
@@ -42,6 +50,7 @@ class AdminActivity : AppCompatActivity() {
         val venueInput: EditText = findViewById(R.id.venueIdInput)
         val refreshInput: EditText = findViewById(R.id.trustRefreshInput)
         val apiInput: EditText = findViewById(R.id.apiEndpointInput)
+        val apiLockedLabel: TextView = findViewById(R.id.apiEndpointLockedLabel)
         val demoSwitch: SwitchCompat = findViewById(R.id.demoModeSwitch)
         val pinStatus: TextView = findViewById(R.id.pinStatusText)
         val currentPinInput: EditText = findViewById(R.id.currentPinInput)
@@ -53,6 +62,16 @@ class AdminActivity : AppCompatActivity() {
         refreshInput.setText(config.trustRefreshIntervalMinutes.toString())
         apiInput.setText(config.apiEndpointOverride)
         demoSwitch.isChecked = config.demoMode
+
+        if (!TrustListEndpointPolicy.allowOverride) {
+            apiInput.isEnabled = false
+            apiInput.isFocusable = false
+            apiInput.isFocusableInTouchMode = false
+            apiInput.isCursorVisible = false
+            apiLockedLabel.visibility = View.VISIBLE
+        } else {
+            apiLockedLabel.visibility = View.GONE
+        }
 
         val lengthFilter = InputFilter.LengthFilter(AdminPinManager.MAX_PIN_LENGTH)
         currentPinInput.filters = arrayOf(lengthFilter)
@@ -75,7 +94,11 @@ class AdminActivity : AppCompatActivity() {
             val venueId = venueInput.text.toString().trim()
             val refreshMinutes = refreshInput.text.toString().toIntOrNull()
                 ?: AdminConfig.DEFAULT_TRUST_REFRESH_MINUTES
-            val endpoint = apiInput.text.toString().trim()
+            val endpoint = if (TrustListEndpointPolicy.allowOverride) {
+                apiInput.text.toString().trim()
+            } else {
+                ""
+            }
             val currentPin = currentPinInput.text.toString()
             val newPin = newPinInput.text.toString().trim()
             val confirmPin = confirmPinInput.text.toString().trim()

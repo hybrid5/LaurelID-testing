@@ -2,9 +2,9 @@ package com.laurelid.di
 
 import android.content.Context
 import com.laurelid.auth.VerifierService
-import com.laurelid.network.RetrofitModule
 import com.laurelid.network.TrustListApi
 import com.laurelid.network.TrustListApiFactory
+import com.laurelid.network.TrustListEndpointPolicy
 import com.laurelid.network.TrustListRepository
 import com.laurelid.util.LogManager
 import dagger.Module
@@ -26,7 +26,7 @@ object VerifierModule {
 
     @Provides
     @Named("trustListBaseUrl")
-    fun provideTrustListBaseUrl(): String = RetrofitModule.DEFAULT_BASE_URL
+    fun provideTrustListBaseUrl(): String = TrustListEndpointPolicy.defaultBaseUrl
 
     @Provides
     @Singleton

@@ -54,6 +54,7 @@ import com.laurelid.db.DbModule
 import com.laurelid.db.VerificationEntity
 import com.laurelid.kiosk.KioskWatchdogService
 import com.laurelid.network.TrustListApiFactory
+import com.laurelid.network.TrustListEndpointPolicy
 import com.laurelid.network.TrustListRepository
 import com.laurelid.pos.TransactionManager
 import com.laurelid.util.KioskUtil
@@ -538,7 +539,11 @@ class ScannerActivity : AppCompatActivity() {
     }
 
     private fun resolveBaseUrl(config: AdminConfig): String {
-        return config.apiEndpointOverride.takeIf { it.isNotBlank() } ?: defaultTrustListBaseUrl
+        val resolved = TrustListEndpointPolicy.resolveBaseUrl(config)
+        if (!TrustListEndpointPolicy.allowOverride && config.apiEndpointOverride.isNotBlank()) {
+            Logger.w(TAG, "Ignoring trust list override; not permitted in this build.")
+        }
+        return resolved
     }
 
     private fun updateState(state: ScannerState) {

@@ -21,6 +21,7 @@
     <string name="admin_venue_id">Venue ID</string>
     <string name="admin_trust_refresh">Trust list refresh (minutes)</string>
     <string name="admin_api_endpoint">Trust list API endpoint override</string>
+    <string name="admin_api_endpoint_locked">Endpoint overrides are disabled in production builds.</string>
     <string name="admin_demo_mode">Enable demo mode</string>
     <string name="admin_save">Save configuration</string>
     <string name="admin_saved">Settings updated</string>
@@ -39,6 +40,7 @@
     <string name="admin_pin_mismatch">PINs do not match.</string>
     <string name="admin_pin_required">Set a new PIN to continue.</string>
     <string name="admin_pin_updated">PIN updated and settings saved.</string>
+    <string name="play_integrity_blocked">Admin settings are locked because the device failed Play Integrity verification.</string>
 
     <!-- Added missing strings -->
     <string name="admin_pin_hint">Enter PIN</string>

@@ -33,6 +33,7 @@ class ISO18013ParserTest {
         assertNotNull(givenName)
         assertArrayEquals("Doe".toByteArray(), familyName!!)
         assertArrayEquals("Alice".toByteArray(), givenName!!)
+        assertNotNull(parsed.deviceSignedCose)
     }
 
     @Test
@@ -107,6 +108,7 @@ class ISO18013ParserTest {
         json.put("ageOver21", true)
         json.put("issuerAuth", encoder.encodeToString("issuer-auth".toByteArray()))
         json.put("deviceSignedEntries", deviceSignedEntries)
+        json.put("deviceSignedCose", encoder.encodeToString("device-signed".toByteArray()))
         return json.toString().toByteArray()
     }
 }

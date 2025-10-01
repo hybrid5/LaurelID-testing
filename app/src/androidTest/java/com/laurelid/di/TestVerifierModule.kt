@@ -67,6 +67,7 @@ private class FakeTrustListRepository(
     },
     cacheDir = File(context.cacheDir, "fake_trust_list"),
     defaultMaxAgeMillis = Long.MAX_VALUE,
+    defaultStaleTtlMillis = Long.MAX_VALUE,
     ioDispatcher = Dispatchers.IO,
     initialBaseUrl = TrustListEndpointPolicy.defaultBaseUrl,
 ) {
@@ -81,9 +82,13 @@ private class FakeTrustListRepository(
 
     override suspend fun getOrRefresh(nowMillis: Long): Snapshot = snapshot
 
-    override suspend fun getOrRefresh(nowMillis: Long, maxAgeMillis: Long): Snapshot = snapshot
+    override suspend fun getOrRefresh(
+        nowMillis: Long,
+        maxAgeMillis: Long,
+        staleTtlMillis: Long,
+    ): Snapshot = snapshot
 
-    override fun cached(): Snapshot? = snapshot
+    override fun cached(nowMillis: Long): Snapshot? = snapshot
 
     override fun updateEndpoint(newApi: TrustListApi, newBaseUrl: String) {
         baseUrl = newBaseUrl

@@ -24,23 +24,29 @@ android {
   productFlavors {
     create("staging") {
       dimension = "environment"
-      buildConfigField("String", "TRUST_LIST_BASE_URL", "\"https://trustlist-placeholder.example.com/\"")
+      buildConfigField("String", "TRUST_LIST_BASE_URL", "\"https://trustlist.staging.laurelid.dev/api/v1/\"")
       buildConfigField("boolean", "ALLOW_TRUST_LIST_OVERRIDE", "true")
       buildConfigField(
         "String",
         "TRUST_LIST_CERT_PINS",
-        "\"sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\"",
+        "\"sha256/53WBOQS+QL6Tw4VVKvh/Au9ua7Lif0cZ5mlzXRa37kY@1748736000000,sha256/Sq9GtEtHd5FcNhLBA7ZnWD9E/RE0KhwvhJ8apGLI1qI@1780272000000\"",
       )
+      buildConfigField("long", "TRUST_LIST_CACHE_MAX_AGE_MILLIS", "43200000L")
+      buildConfigField("long", "TRUST_LIST_CACHE_STALE_TTL_MILLIS", "259200000L")
+      buildConfigField("long", "TRUST_LIST_PIN_EXPIRY_GRACE_MILLIS", "1209600000L")
     }
     create("production") {
       dimension = "environment"
-      buildConfigField("String", "TRUST_LIST_BASE_URL", "\"https://trustlist-placeholder.example.com/\"")
+      buildConfigField("String", "TRUST_LIST_BASE_URL", "\"https://trustlist.laurelid.gov/api/v1/\"")
       buildConfigField("boolean", "ALLOW_TRUST_LIST_OVERRIDE", "false")
       buildConfigField(
         "String",
         "TRUST_LIST_CERT_PINS",
-        "\"sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\"",
+        "\"sha256/53WBOQS+QL6Tw4VVKvh/Au9ua7Lif0cZ5mlzXRa37kY@1748736000000,sha256/Sq9GtEtHd5FcNhLBA7ZnWD9E/RE0KhwvhJ8apGLI1qI@1780272000000\"",
       )
+      buildConfigField("long", "TRUST_LIST_CACHE_MAX_AGE_MILLIS", "43200000L")
+      buildConfigField("long", "TRUST_LIST_CACHE_STALE_TTL_MILLIS", "259200000L")
+      buildConfigField("long", "TRUST_LIST_PIN_EXPIRY_GRACE_MILLIS", "1209600000L")
     }
   }
 

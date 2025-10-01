@@ -1,0 +1,115 @@
+openapi: 3.0.3
+info:
+  title: LaurelID Ingestion API
+  version: 0.1.0
+  description: |
+    Minimal backend API for ingesting kiosk events and retrieving aggregate statistics.
+servers:
+  - url: http://localhost:8000
+paths:
+  /events:
+    post:
+      summary: Ingest an event
+      operationId: ingestEvent
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EventIn'
+      responses:
+        '201':
+          description: Event stored
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventOut'
+        '401':
+          description: Unauthorized
+  /stats:
+    get:
+      summary: List aggregate statistics
+      operationId: listStats
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+          required: false
+          description: Maximum number of aggregate rows to return.
+      responses:
+        '200':
+          description: Aggregated stats
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/EventStatOut'
+        '401':
+          description: Unauthorized
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    EventIn:
+      type: object
+      required:
+        - event_type
+      properties:
+        event_type:
+          type: string
+          description: Type of the event, e.g. kiosk.screen_view.
+        user_id:
+          type: string
+          nullable: true
+          description: Identifier of the user interacting with the kiosk.
+        payload:
+          type: object
+          additionalProperties: {}
+          description: Structured event payload.
+        metadata:
+          type: object
+          nullable: true
+          additionalProperties: {}
+          description: Optional metadata describing the kiosk or capture context.
+    EventOut:
+      type: object
+      properties:
+        id:
+          type: integer
+        event_type:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        anonymized:
+          type: boolean
+      required:
+        - id
+        - event_type
+        - created_at
+        - anonymized
+    EventStatOut:
+      type: object
+      properties:
+        event_type:
+          type: string
+        event_date:
+          type: string
+          format: date
+        count:
+          type: integer
+      required:
+        - event_type
+        - event_date
+        - count

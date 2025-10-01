@@ -16,13 +16,15 @@ import java.security.cert.X509Certificate
 import java.time.Clock
 import java.time.Instant
 import java.util.Base64
+import javax.inject.Singleton
 
-class VerifierService(
+@Singleton
+open class VerifierService constructor(
     private val trustListRepository: TrustListRepository,
-    private val clock: Clock = Clock.systemUTC()
+    private val clock: Clock
 ) {
 
-    suspend fun verify(parsed: ParsedMdoc, maxCacheAgeMillis: Long): VerificationResult {
+    open suspend fun verify(parsed: ParsedMdoc, maxCacheAgeMillis: Long): VerificationResult {
         val issuerAuth = parsed.issuerAuth
         val deviceSigned = parsed.deviceSignedEntries
 

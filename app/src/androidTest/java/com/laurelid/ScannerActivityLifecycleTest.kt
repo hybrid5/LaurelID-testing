@@ -6,24 +6,32 @@ import androidx.lifecycle.Lifecycle
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import dagger.hilt.android.testing.HiltAndroidRule
+import dagger.hilt.android.testing.HiltAndroidTest
 import com.laurelid.config.AdminConfig
 import com.laurelid.config.ConfigManager
 import com.laurelid.network.RetrofitModule
 import com.laurelid.ui.ScannerActivity
 import org.junit.After
 import org.junit.Before
+import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.junit.Assert.assertEquals
 
+@HiltAndroidTest
 @RunWith(AndroidJUnit4::class)
 class ScannerActivityLifecycleTest {
 
     private lateinit var context: Context
     private lateinit var configManager: ConfigManager
 
+    @get:Rule
+    val hiltRule = HiltAndroidRule(this)
+
     @Before
     fun setUp() {
+        hiltRule.inject()
         context = ApplicationProvider.getApplicationContext()
         configManager = ConfigManager(context)
         configManager.saveConfig(AdminConfig(demoMode = true))

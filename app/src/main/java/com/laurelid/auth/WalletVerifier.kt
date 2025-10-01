@@ -4,15 +4,13 @@ package com.laurelid.auth
 // and has at least fields: issuer, ageOver21, subjectDid, docType.
 // The build log for ScannerActivity implies com.laurelid.auth.ParsedMdoc.
 import com.laurelid.data.VerificationResult
-import com.laurelid.network.TrustListRepository
-import java.time.Clock
+import javax.inject.Inject
+import javax.inject.Singleton
 
-class WalletVerifier(
-    trustListRepository: TrustListRepository,
-    clock: Clock = Clock.systemUTC()
+@Singleton
+class WalletVerifier @Inject constructor(
+    private val verifierService: VerifierService
 ) {
-
-    private val verifierService = VerifierService(trustListRepository, clock)
 
     suspend fun verify(parsed: ParsedMdoc, maxCacheAgeMillis: Long): VerificationResult {
         return verifierService.verify(parsed, maxCacheAgeMillis)

@@ -57,4 +57,13 @@
     <string name="watchdog_notification_title">Kiosk protection active</string>
     <string name="watchdog_notification_body">Monitoring scanner uptime</string>
     <string name="watchdog_notification_channel">Kiosk watchdog</string>
+
+    <!-- Accessibility descriptions -->
+    <string name="desc_login_root">Operator login status screen</string>
+    <string name="desc_scanner_root">Credential scanning screen</string>
+    <string name="desc_camera_preview">Live camera preview used to scan credentials</string>
+    <string name="desc_scanner_progress">Scanning in progress</string>
+    <string name="desc_debug_log_button">Show the most recent log entries</string>
+    <string name="desc_result_root">Verification result screen</string>
+    <string name="desc_admin_root">Administrator configuration screen</string>
 </resources>

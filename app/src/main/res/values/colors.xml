@@ -9,4 +9,7 @@
     <color name="white">#FFFFFFFF</color>
     <color name="verification_success">#4CAF50</color>
     <color name="verification_failure">#F44336</color>
+    <color name="input_background">#FFF4F4F4</color>
+    <color name="text_hint_on_light">#FF5C5C5C</color>
+    <color name="result_metadata">#FFC8C8C8</color>
 </resources>

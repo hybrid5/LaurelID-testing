@@ -2,7 +2,8 @@ plugins {
   alias(libs.plugins.android.application)
   alias(libs.plugins.kotlin.android)
   alias(libs.plugins.kotlin.parcelize)
-  alias(libs.plugins.kotlin.kapt) // Added for Room
+  alias(libs.plugins.kotlin.kapt)
+  alias(libs.plugins.hilt.android)
 }
 
 android {
@@ -15,12 +16,24 @@ android {
     targetSdk = 35
     versionCode = 1
     versionName = "1.0"
-    testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    testInstrumentationRunner = "com.google.dagger.hilt.android.testing.HiltTestRunner"
   }
 
   buildFeatures {
     viewBinding = true
-    buildConfig = true // Added
+    buildConfig = true
+  }
+
+  buildTypes {
+    release {
+      isMinifyEnabled = true
+      isShrinkResources = true
+      proguardFiles(
+          getDefaultProguardFile("proguard-android-optimize.txt"),
+          "proguard-rules.pro",
+      )
+      signingConfig = signingConfigs.debug
+    }
   }
 
   compileOptions {
@@ -32,16 +45,22 @@ android {
   }
 }
 
+kapt {
+  correctErrorTypes = true
+}
+
 dependencies {
-  implementation(libs.androidx.core.ktx) // Added
-  implementation(libs.androidx.appcompat) // Added
-  implementation(libs.google.android.material) // Added
+  implementation(libs.androidx.core.ktx)
+  implementation(libs.androidx.appcompat)
+  implementation(libs.material)
+
+  implementation(platform(libs.mlkit.bom))
+  implementation(libs.mlkit.barcode)
 
   implementation(libs.androidx.camera.core)
   implementation(libs.androidx.camera.camera2)
   implementation(libs.androidx.camera.lifecycle)
   implementation(libs.androidx.camera.view)
-  implementation(libs.mlkit.barcode)
 
   implementation(libs.room.runtime)
   implementation(libs.room.ktx)
@@ -53,6 +72,8 @@ dependencies {
   implementation(libs.okhttp.logging)
   implementation(libs.androidx.security.crypto)
   implementation(libs.cbor)
+  implementation(libs.hilt.android)
+  kapt(libs.hilt.compiler)
 
   testImplementation(kotlin("test"))
   testImplementation(libs.cose)
@@ -63,4 +84,6 @@ dependencies {
   androidTestImplementation(libs.androidx.test.core)
   androidTestImplementation(libs.espresso.core)
   androidTestImplementation(libs.espresso.intents)
+  androidTestImplementation(libs.hilt.android.testing)
+  kaptAndroidTest(libs.hilt.compiler)
 }

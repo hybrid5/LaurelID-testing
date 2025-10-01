@@ -36,9 +36,9 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
-import com.google.mlkit.vision.barcode.common.Barcode // Kept as common
 import com.google.mlkit.vision.barcode.BarcodeScanning // Ensured
 import com.google.mlkit.vision.barcode.BarcodeScannerOptions // Changed to this specific import
+import com.google.mlkit.vision.barcode.common.Barcode // Kept as common
 import com.google.mlkit.vision.common.InputImage
 import com.laurelid.BuildConfig
 import com.laurelid.R
@@ -47,18 +47,19 @@ import com.laurelid.auth.ParsedMdoc // Ensure this class exists and has necessar
 import com.laurelid.auth.WalletVerifier
 import com.laurelid.config.AdminConfig
 import com.laurelid.config.AdminPinManager
-import com.laurelid.config.EncryptedAdminPinStorage
 import com.laurelid.config.ConfigManager
+import com.laurelid.config.EncryptedAdminPinStorage
 import com.laurelid.data.VerificationResult // Ensure this is Parcelable
 import com.laurelid.db.DbModule
 import com.laurelid.db.VerificationEntity
 import com.laurelid.kiosk.KioskWatchdogService
-import com.laurelid.network.RetrofitModule
+import com.laurelid.network.TrustListApiFactory
 import com.laurelid.network.TrustListRepository
 import com.laurelid.pos.TransactionManager
 import com.laurelid.util.KioskUtil
 import com.laurelid.util.LogManager
 import com.laurelid.util.Logger
+import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -69,7 +70,10 @@ import java.nio.charset.StandardCharsets
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import javax.inject.Inject
+import javax.inject.Named
 
+@AndroidEntryPoint
 class ScannerActivity : AppCompatActivity() {
 
     private lateinit var previewView: PreviewView
@@ -79,6 +83,22 @@ class ScannerActivity : AppCompatActivity() {
     private lateinit var debugButton: Button
     private lateinit var configManager: ConfigManager
     private lateinit var adminPinManager: AdminPinManager
+
+    @Inject
+    lateinit var trustListRepository: TrustListRepository
+
+    @Inject
+    lateinit var walletVerifier: WalletVerifier
+
+    @Inject
+    lateinit var logManager: LogManager
+
+    @Inject
+    lateinit var trustListApiFactory: TrustListApiFactory
+
+    @Inject
+    @Named("trustListBaseUrl")
+    lateinit var defaultTrustListBaseUrl: String
 
     private val parser = ISO18013Parser()
     private val cameraExecutor: ExecutorService by lazy { Executors.newSingleThreadExecutor() }
@@ -90,8 +110,6 @@ class ScannerActivity : AppCompatActivity() {
         )
     }
 
-    private var trustListRepository: TrustListRepository? = null
-    private var walletVerifier: WalletVerifier? = null
     private val verificationDao by lazy { DbModule.provideVerificationDao(applicationContext) }
     private val transactionManager by lazy { TransactionManager() }
 
@@ -128,7 +146,7 @@ class ScannerActivity : AppCompatActivity() {
         configManager = ConfigManager(applicationContext)
         adminPinManager = AdminPinManager(EncryptedAdminPinStorage(applicationContext))
         currentConfig = configManager.getConfig()
-        currentBaseUrl = resolveBaseUrl(currentConfig) // Initialize before first network dependency build
+        currentBaseUrl = trustListRepository.currentBaseUrl() ?: resolveBaseUrl(currentConfig)
 
         rebuildNetworkDependencies(currentConfig, true) // Force initial build
 
@@ -151,7 +169,7 @@ class ScannerActivity : AppCompatActivity() {
         val configChanged = currentConfig != newConfig
         currentConfig = newConfig
 
-        rebuildNetworkDependencies(currentConfig, configChanged || walletVerifier == null)
+        rebuildNetworkDependencies(currentConfig, configChanged)
 
 
         if (currentConfig.demoMode) {
@@ -493,16 +511,7 @@ class ScannerActivity : AppCompatActivity() {
         val refreshMillis = TimeUnit.MINUTES.toMillis(configSnapshot.trustRefreshIntervalMinutes.toLong())
 
         lifecycleScope.launch {
-            // ensureWalletVerifier is handled by rebuildNetworkDependencies, use the class member walletVerifier
-            val verifier = this@ScannerActivity.walletVerifier
-            if (verifier == null) {
-                Logger.e(TAG, "WalletVerifier not initialized!")
-                // Handle error: show message, reset state
-                isProcessingCredential = false
-                updateState(ScannerState.SCANNING)
-                if(!currentConfig.demoMode) startCamera()
-                return@launch
-            }
+            val verifier = walletVerifier
 
             val verificationResult = runCatching {
                 verifier.verify(parsedMdoc, refreshMillis)
@@ -529,7 +538,7 @@ class ScannerActivity : AppCompatActivity() {
     }
 
     private fun resolveBaseUrl(config: AdminConfig): String {
-        return config.apiEndpointOverride.takeIf { it.isNotBlank() } ?: RetrofitModule.DEFAULT_BASE_URL
+        return config.apiEndpointOverride.takeIf { it.isNotBlank() } ?: defaultTrustListBaseUrl
     }
 
     private fun updateState(state: ScannerState) {
@@ -598,7 +607,7 @@ class ScannerActivity : AppCompatActivity() {
             )
             verificationDao.insert(entity)
             Logger.i(TAG, "Stored verification result (success=${result.success})")
-            LogManager.appendVerification(applicationContext, result, config, demoPayloadUsed)
+            logManager.appendVerification(result, config, demoPayloadUsed)
         }
     }
 
@@ -685,23 +694,22 @@ class ScannerActivity : AppCompatActivity() {
 
     private fun rebuildNetworkDependencies(config: AdminConfig, forceRebuild: Boolean) {
         val targetBaseUrl = resolveBaseUrl(config)
-        if (forceRebuild || walletVerifier == null || targetBaseUrl != currentBaseUrl) {
-            Logger.i(TAG, "Rebuilding network dependencies. Force: $forceRebuild, Current URL: $currentBaseUrl, Target URL: $targetBaseUrl")
+        if (forceRebuild || targetBaseUrl != currentBaseUrl) {
+            Logger.i(
+                TAG,
+                "Rebuilding network dependencies. Force: $forceRebuild, Current URL: $currentBaseUrl, Target URL: $targetBaseUrl"
+            )
             try {
-                val api = RetrofitModule.provideTrustListApi(applicationContext, targetBaseUrl)
-                val repository = TrustListRepository.create(applicationContext, api)
-                trustListRepository = repository
-                walletVerifier = WalletVerifier(repository) // Create new instance
+                val api = trustListApiFactory.create(targetBaseUrl)
+                trustListRepository.updateEndpoint(api, targetBaseUrl)
                 currentBaseUrl = targetBaseUrl
                 Logger.i(TAG, "Network dependencies rebuilt for URL: $targetBaseUrl")
             } catch (e: IllegalArgumentException) {
                 Logger.e(TAG, "Invalid trust list URL provided ($targetBaseUrl), falling back to default.", e)
                 Toast.makeText(this, "Invalid API URL, using default.", Toast.LENGTH_LONG).show()
-                val fallbackApi = RetrofitModule.provideTrustListApi(applicationContext, RetrofitModule.DEFAULT_BASE_URL)
-                val repository = TrustListRepository.create(applicationContext, fallbackApi)
-                trustListRepository = repository
-                walletVerifier = WalletVerifier(repository)
-                currentBaseUrl = RetrofitModule.DEFAULT_BASE_URL
+                val fallbackApi = trustListApiFactory.create(defaultTrustListBaseUrl)
+                trustListRepository.updateEndpoint(fallbackApi, defaultTrustListBaseUrl)
+                currentBaseUrl = defaultTrustListBaseUrl
             }
         }
     }

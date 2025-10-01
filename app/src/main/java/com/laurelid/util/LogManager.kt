@@ -3,19 +3,26 @@ package com.laurelid.util
 import android.content.Context
 import com.laurelid.config.AdminConfig
 import com.laurelid.data.VerificationResult
+import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import java.io.IOException
+import java.time.Clock
 import java.util.concurrent.TimeUnit
+import javax.inject.Singleton
 import org.json.JSONObject
 
-object LogManager {
+@Singleton
+open class LogManager constructor(
+    @ApplicationContext private val context: Context,
+    private val clock: Clock,
+) {
     private const val LOG_DIR = "logs"
     private const val LOG_FILE = "verify.log"
     private const val MIGRATION_PREFS = "log_migrations"
     private const val KEY_LEGACY_PURGED = "legacy_logs_purged"
     private val TIMESTAMP_REGEX = Regex("\"ts\":(\\d+)")
 
-    fun purgeLegacyLogs(context: Context) {
+    open fun purgeLegacyLogs() {
         val prefs = context.getSharedPreferences(MIGRATION_PREFS, Context.MODE_PRIVATE)
         if (prefs.getBoolean(KEY_LEGACY_PURGED, false)) {
             return
@@ -29,7 +36,7 @@ object LogManager {
         prefs.edit().putBoolean(KEY_LEGACY_PURGED, true).apply()
     }
 
-    fun appendVerification(context: Context, result: VerificationResult, config: AdminConfig, demoModeUsed: Boolean) {
+    open fun appendVerification(result: VerificationResult, config: AdminConfig, demoModeUsed: Boolean) {
         try {
             val dir = File(context.filesDir, LOG_DIR)
             if (!dir.exists()) {
@@ -37,7 +44,7 @@ object LogManager {
             }
             val file = File(dir, LOG_FILE)
             val payload = JSONObject().apply {
-                put("ts", System.currentTimeMillis())
+                put("ts", clock.millis())
                 put("venueId", config.venueId)
                 put("success", result.success)
                 put("ageOver21", result.ageOver21 == true)
@@ -50,7 +57,7 @@ object LogManager {
         }
     }
 
-    fun purgeOldLogs(context: Context) {
+    open fun purgeOldLogs() {
         val logFile = File(File(context.filesDir, LOG_DIR), LOG_FILE)
         if (!logFile.exists()) return
         val lines = try {
@@ -59,7 +66,7 @@ object LogManager {
             Logger.e(TAG, "Unable to read verification logs for retention", ioException)
             return
         }
-        val cutoff = System.currentTimeMillis() - TimeUnit.DAYS.toMillis(30)
+        val cutoff = clock.millis() - TimeUnit.DAYS.toMillis(30)
         val filtered = lines.filter { line ->
             val timestamp = TIMESTAMP_REGEX.find(line)?.groupValues?.getOrNull(1)?.toLongOrNull()
             timestamp == null || timestamp >= cutoff

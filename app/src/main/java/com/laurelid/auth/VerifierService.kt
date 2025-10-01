@@ -6,6 +6,9 @@ import com.laurelid.util.Logger
 import com.upokecenter.cbor.CBORObject
 import com.upokecenter.cbor.CBORType
 import java.io.ByteArrayInputStream
+import java.math.BigInteger
+import java.security.AlgorithmParameters
+import java.security.KeyFactory
 import java.security.MessageDigest
 import java.security.PublicKey
 import java.security.Signature
@@ -16,6 +19,10 @@ import java.security.cert.X509Certificate
 import java.time.Clock
 import java.time.Instant
 import java.util.Base64
+import java.security.spec.ECGenParameterSpec
+import java.security.spec.ECParameterSpec
+import java.security.spec.ECPoint
+import java.security.spec.ECPublicKeySpec
 import javax.inject.Singleton
 
 @Singleton
@@ -26,9 +33,10 @@ open class VerifierService constructor(
 
     open suspend fun verify(parsed: ParsedMdoc, maxCacheAgeMillis: Long): VerificationResult {
         val issuerAuth = parsed.issuerAuth
-        val deviceSigned = parsed.deviceSignedEntries
+        val deviceSignedEntries = parsed.deviceSignedEntries
+        val deviceSignedCose = parsed.deviceSignedCose
 
-        if (issuerAuth == null || deviceSigned == null) {
+        if (issuerAuth == null || deviceSignedEntries == null || deviceSignedCose == null) {
             Logger.w(TAG, "Issuer auth or device-signed payload missing; failing closed.")
             return failure(parsed, ERROR_NOT_IMPLEMENTED)
         }
@@ -49,10 +57,10 @@ open class VerifierService constructor(
             return failure(parsed, ERROR_TRUST_LIST_UNAVAILABLE)
         }
 
-        val decodedSign1 = decodeSign1(issuerAuth) ?: return failure(parsed, ERROR_MALFORMED_ISSUER_AUTH)
-        val payload = decodedSign1.payload
+        val decodedIssuerSign1 = decodeSign1(issuerAuth)
+            ?: return failure(parsed, ERROR_MALFORMED_ISSUER_AUTH)
         val mso = try {
-            CBORObject.DecodeFromBytes(payload)
+            CBORObject.DecodeFromBytes(decodedIssuerSign1.payload)
         } catch (throwable: Throwable) {
             Logger.e(TAG, "Unable to decode Mobile Security Object payload", throwable)
             return failure(parsed, ERROR_MALFORMED_ISSUER_AUTH)
@@ -95,9 +103,33 @@ open class VerifierService constructor(
             return failure(parsed, ERROR_TRUST_ANCHOR_NOT_YET_VALID, issuer, docType)
         }
 
-        if (!validateSignature(decodedSign1, certificate.publicKey)) {
+        if (!validateCertificateChain(decodedIssuerSign1.certificateChain, certificate)) {
+            Logger.w(TAG, "Issuer authentication chain mismatch")
+            return failure(parsed, ERROR_ISSUER_AUTH_CHAIN_MISMATCH, issuer, docType)
+        }
+
+        if (!validateSignature(decodedIssuerSign1, certificate.publicKey)) {
             Logger.w(TAG, "Issuer signature validation failed")
             return failure(parsed, ERROR_INVALID_SIGNATURE, issuer, docType)
+        }
+
+        val devicePublicKey = extractDevicePublicKey(mso)
+            ?: return failure(parsed, ERROR_INVALID_DEVICE_KEY_INFO, issuer, docType)
+
+        val decodedDeviceSign1 = decodeSign1(deviceSignedCose)
+            ?: return failure(parsed, ERROR_MALFORMED_DEVICE_SIGNED, issuer, docType)
+
+        if (!validateSignature(decodedDeviceSign1, devicePublicKey)) {
+            Logger.w(TAG, "Device signature validation failed")
+            return failure(parsed, ERROR_INVALID_DEVICE_SIGNATURE, issuer, docType)
+        }
+
+        val signedEntries = parseDeviceSignedEntries(decodedDeviceSign1.payload)
+            ?: return failure(parsed, ERROR_MALFORMED_DEVICE_SIGNED, issuer, docType)
+
+        if (!deviceEntriesMatch(deviceSignedEntries, signedEntries)) {
+            Logger.w(TAG, "Device signed payload mismatch between COSE and parsed entries")
+            return failure(parsed, ERROR_DEVICE_DATA_MISMATCH, issuer, docType)
         }
 
         val digestMap = parseValueDigests(mso[CBORObject.FromObject(VALUE_DIGESTS_KEY)])
@@ -114,7 +146,7 @@ open class VerifierService constructor(
         }
 
         for ((namespace, expectedDigests) in digestMap) {
-            val actualValues = deviceSigned[namespace]
+            val actualValues = signedEntries[namespace]
                 ?: return failure(parsed, ERROR_MISSING_DEVICE_VALUES, issuer, docType)
 
             for ((element, expectedDigest) in expectedDigests) {
@@ -129,7 +161,7 @@ open class VerifierService constructor(
             }
         }
 
-        val ageFlag = extractAgeFlag(deviceSigned)
+        val ageFlag = extractAgeFlag(signedEntries)
 
         return VerificationResult(
             success = true,
@@ -171,10 +203,12 @@ open class VerifierService constructor(
         }
 
         val protectedSection = coseObject[0]
+        val unprotectedSection = coseObject[1]
         val payloadSection = coseObject[2]
         val signatureSection = coseObject[3]
 
         if (protectedSection == null || protectedSection.type != CBORType.ByteString) return null
+        if (unprotectedSection != null && unprotectedSection.type != CBORType.Map) return null
         if (payloadSection == null || payloadSection.type != CBORType.ByteString) return null
         if (signatureSection == null || signatureSection.type != CBORType.ByteString) return null
 
@@ -190,15 +224,22 @@ open class VerifierService constructor(
             }
         }
 
-        val algorithmId = protectedHeaders[CBORObject.FromObject(HEADER_ALG_ID)] ?: return null
+        val unprotectedHeaders = unprotectedSection ?: CBORObject.NewMap()
+
+        val algorithmId = protectedHeaders[CBORObject.FromObject(HEADER_ALG_ID)]
+            ?: unprotectedHeaders[CBORObject.FromObject(HEADER_ALG_ID)]
+            ?: return null
         val signatureAlgorithm = SignatureAlgorithm.fromCoseId(algorithmId.AsNumber().ToInt32Checked())
             ?: return null
+
+        val certificateChain = extractCertificateChain(protectedHeaders, unprotectedHeaders) ?: return null
 
         return DecodedSign1(
             payload = payloadSection.GetByteString(),
             signature = signatureSection.GetByteString(),
             protectedBytes = protectedBytes,
-            algorithm = signatureAlgorithm
+            algorithm = signatureAlgorithm,
+            certificateChain = certificateChain
         )
     }
 
@@ -223,6 +264,169 @@ open class VerifierService constructor(
             Logger.e(TAG, "Unable to decode trust anchor certificate", throwable)
             null
         }
+    }
+
+    private fun decodeCertificateBytes(bytes: ByteArray): X509Certificate? {
+        return try {
+            val factory = CertificateFactory.getInstance("X.509")
+            factory.generateCertificate(ByteArrayInputStream(bytes)) as X509Certificate
+        } catch (throwable: Throwable) {
+            Logger.e(TAG, "Unable to decode certificate from issuer auth chain", throwable)
+            null
+        }
+    }
+
+    private fun extractCertificateChain(
+        protectedHeaders: CBORObject,
+        unprotectedHeaders: CBORObject
+    ): List<ByteArray>? {
+        val chain = mutableListOf<ByteArray>()
+        val protectedChain = parseX5Chain(protectedHeaders[CBORObject.FromObject(HEADER_X5CHAIN)])
+            ?: return null
+        val unprotectedChain = parseX5Chain(unprotectedHeaders[CBORObject.FromObject(HEADER_X5CHAIN)])
+            ?: return null
+        chain.addAll(protectedChain)
+        chain.addAll(unprotectedChain)
+        return chain
+    }
+
+    private fun parseX5Chain(header: CBORObject?): List<ByteArray>? {
+        if (header == null) {
+            return emptyList()
+        }
+
+        if (header.type == CBORType.ByteString) {
+            return listOf(header.GetByteString())
+        }
+
+        if (header.type != CBORType.Array) {
+            return null
+        }
+
+        val result = mutableListOf<ByteArray>()
+        for (index in 0 until header.size()) {
+            val item = header[index]
+            if (item == null || item.type != CBORType.ByteString) {
+                return null
+            }
+            result.add(item.GetByteString())
+        }
+        return result
+    }
+
+    private fun validateCertificateChain(
+        chainBytes: List<ByteArray>,
+        trustAnchor: X509Certificate
+    ): Boolean {
+        if (chainBytes.isEmpty()) {
+            Logger.w(TAG, "Issuer auth missing certificate chain")
+            return false
+        }
+
+        val decoded = mutableListOf<X509Certificate>()
+        for (entry in chainBytes) {
+            val certificate = decodeCertificateBytes(entry) ?: return false
+            decoded.add(certificate)
+        }
+
+        return decoded.any { it.encoded.contentEquals(trustAnchor.encoded) }
+    }
+
+    private fun extractDevicePublicKey(mso: CBORObject): PublicKey? {
+        val deviceKeyInfo = mso[CBORObject.FromObject(DEVICE_KEY_INFO_KEY)] ?: return null
+        if (deviceKeyInfo.type != CBORType.Map) return null
+        val deviceKey = deviceKeyInfo[CBORObject.FromObject(DEVICE_KEY_KEY)] ?: return null
+        return coseKeyToPublicKey(deviceKey)
+    }
+
+    private fun coseKeyToPublicKey(cbor: CBORObject): PublicKey? {
+        if (cbor.type != CBORType.Map) return null
+        val kty = cbor[CBORObject.FromObject(COSE_KEY_KTY)] ?: return null
+        if (!kty.IsNumber) return null
+        if (kty.AsNumber().ToInt32Checked() != COSE_KEY_KTY_EC2) return null
+
+        val curve = cbor[CBORObject.FromObject(COSE_KEY_CRV)] ?: return null
+        if (!curve.IsNumber || curve.AsNumber().ToInt32Checked() != COSE_KEY_CRV_P256) return null
+
+        val x = cbor[CBORObject.FromObject(COSE_KEY_X)] ?: return null
+        val y = cbor[CBORObject.FromObject(COSE_KEY_Y)] ?: return null
+        if (x.type != CBORType.ByteString || y.type != CBORType.ByteString) return null
+
+        val xBytes = x.GetByteString()
+        val yBytes = y.GetByteString()
+        if (xBytes.size != P256_COORDINATE_LENGTH || yBytes.size != P256_COORDINATE_LENGTH) {
+            return null
+        }
+
+        return createEcPublicKey(xBytes, yBytes)
+    }
+
+    private fun createEcPublicKey(x: ByteArray, y: ByteArray): PublicKey? {
+        return try {
+            val parameters = AlgorithmParameters.getInstance("EC")
+            parameters.init(ECGenParameterSpec("secp256r1"))
+            val ecParameters = parameters.getParameterSpec(ECParameterSpec::class.java)
+            val point = ECPoint(BigInteger(1, x), BigInteger(1, y))
+            val keySpec = ECPublicKeySpec(point, ecParameters)
+            KeyFactory.getInstance("EC").generatePublic(keySpec)
+        } catch (throwable: Throwable) {
+            Logger.e(TAG, "Unable to construct EC public key", throwable)
+            null
+        }
+    }
+
+    private fun parseDeviceSignedEntries(payload: ByteArray): Map<String, Map<String, ByteArray>>? {
+        val root = try {
+            CBORObject.DecodeFromBytes(payload)
+        } catch (throwable: Throwable) {
+            Logger.e(TAG, "Unable to decode device signed payload", throwable)
+            return null
+        }
+
+        if (root.type != CBORType.Map) return null
+        val nameSpaces = root[CBORObject.FromObject(DEVICE_NAMESPACES_KEY)]
+        return parseNameSpacesCbor(nameSpaces)
+    }
+
+    private fun parseNameSpacesCbor(root: CBORObject?): Map<String, Map<String, ByteArray>>? {
+        if (root == null || root.type != CBORType.Map) return null
+        val result = mutableMapOf<String, Map<String, ByteArray>>()
+        for (namespaceKey in root.keys) {
+            val namespace = namespaceKey.AsString()
+            val entryMap = root[namespaceKey]
+            if (entryMap == null || entryMap.type != CBORType.Map) {
+                return null
+            }
+            val elements = mutableMapOf<String, ByteArray>()
+            for (elementKey in entryMap.keys) {
+                val elementValue = entryMap[elementKey]
+                if (elementValue == null || elementValue.type != CBORType.ByteString) {
+                    return null
+                }
+                elements[elementKey.AsString()] = elementValue.GetByteString()
+            }
+            result[namespace] = elements
+        }
+        return result
+    }
+
+    private fun deviceEntriesMatch(
+        parsedEntries: Map<String, Map<String, ByteArray>>?,
+        signedEntries: Map<String, Map<String, ByteArray>>
+    ): Boolean {
+        if (parsedEntries == null) return false
+        if (parsedEntries.size != signedEntries.size) return false
+        for ((namespace, parsedElements) in parsedEntries) {
+            val signedElements = signedEntries[namespace] ?: return false
+            if (parsedElements.size != signedElements.size) return false
+            for ((element, parsedValue) in parsedElements) {
+                val signedValue = signedElements[element] ?: return false
+                if (!signedValue.contentEquals(parsedValue)) {
+                    return false
+                }
+            }
+        }
+        return true
     }
 
     private fun parseValueDigests(root: CBORObject?): Map<String, Map<String, ByteArray>> {
@@ -343,7 +547,8 @@ open class VerifierService constructor(
         val payload: ByteArray,
         val signature: ByteArray,
         val protectedBytes: ByteArray,
-        val algorithm: SignatureAlgorithm
+        val algorithm: SignatureAlgorithm,
+        val certificateChain: List<ByteArray>
     )
 
     private enum class SignatureAlgorithm(val coseId: Int, val jcaName: String, val coordinateLength: Int) {
@@ -364,10 +569,21 @@ open class VerifierService constructor(
         private const val VALID_FROM_KEY = "validFrom"
         private const val VALID_UNTIL_KEY = "validUntil"
         private const val VALUE_DIGESTS_KEY = "valueDigests"
+        private const val DEVICE_KEY_INFO_KEY = "deviceKeyInfo"
+        private const val DEVICE_KEY_KEY = "deviceKey"
+        private const val DEVICE_NAMESPACES_KEY = "nameSpaces"
         private const val AGE_NAMESPACE = "org.iso.18013.5.1"
         private const val AGE_ELEMENT = "age_over_21"
         private const val DEFAULT_DIGEST_ALGORITHM = "SHA-256"
         private const val HEADER_ALG_ID = 1
+        private const val HEADER_X5CHAIN = 33
+        private const val COSE_KEY_KTY = 1
+        private const val COSE_KEY_KTY_EC2 = 2
+        private const val COSE_KEY_CRV = -1
+        private const val COSE_KEY_CRV_P256 = 1
+        private const val COSE_KEY_X = -2
+        private const val COSE_KEY_Y = -3
+        private const val P256_COORDINATE_LENGTH = 32
 
         const val ERROR_NOT_IMPLEMENTED = "NOT_IMPLEMENTED"
         const val ERROR_TRUST_LIST_UNAVAILABLE = "TRUST_LIST_UNAVAILABLE"
@@ -382,5 +598,10 @@ open class VerifierService constructor(
         const val ERROR_UNSUPPORTED_DIGEST = "UNSUPPORTED_DIGEST"
         const val ERROR_MISSING_DEVICE_VALUES = "MISSING_DEVICE_VALUES"
         const val ERROR_DEVICE_DATA_TAMPERED = "DEVICE_DATA_TAMPERED"
+        const val ERROR_ISSUER_AUTH_CHAIN_MISMATCH = "ISSUER_AUTH_CHAIN_MISMATCH"
+        const val ERROR_INVALID_DEVICE_KEY_INFO = "INVALID_DEVICE_KEY_INFO"
+        const val ERROR_MALFORMED_DEVICE_SIGNED = "MALFORMED_DEVICE_SIGNED"
+        const val ERROR_INVALID_DEVICE_SIGNATURE = "INVALID_DEVICE_SIGNATURE"
+        const val ERROR_DEVICE_DATA_MISMATCH = "DEVICE_DATA_MISMATCH"
     }
 }

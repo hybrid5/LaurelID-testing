@@ -86,4 +86,61 @@ class VerifierServiceTest {
             assertEquals(null, result.error)
         }
     }
+
+    @Test
+    fun `verifier rejects tampered device signature`() = runBlocking {
+        val scenario = TestCredentialFixtures.createScenario(
+            clock = clock,
+            validUntil = clock.instant().plus(1, ChronoUnit.DAYS),
+            tamperDeviceSignature = true
+        )
+        TestCredentialFixtures.withTempDir { dir ->
+            val entries = mapOf(scenario.issuer to scenario.certificateBase64)
+            val repository = TrustListRepository(MapBackedTrustListApi(entries), dir)
+            val service = VerifierService(repository, clock)
+
+            val result = service.verify(scenario.parsed, maxCacheAgeMillis = 0)
+
+            assertFalse(result.success)
+            assertEquals(VerifierService.ERROR_INVALID_DEVICE_SIGNATURE, result.error)
+        }
+    }
+
+    @Test
+    fun `verifier rejects issuer auth chain mismatch`() = runBlocking {
+        val scenario = TestCredentialFixtures.createScenario(
+            clock = clock,
+            validUntil = clock.instant().plus(1, ChronoUnit.DAYS),
+            tamperIssuerChain = true
+        )
+        TestCredentialFixtures.withTempDir { dir ->
+            val entries = mapOf(scenario.issuer to scenario.certificateBase64)
+            val repository = TrustListRepository(MapBackedTrustListApi(entries), dir)
+            val service = VerifierService(repository, clock)
+
+            val result = service.verify(scenario.parsed, maxCacheAgeMillis = 0)
+
+            assertFalse(result.success)
+            assertEquals(VerifierService.ERROR_ISSUER_AUTH_CHAIN_MISMATCH, result.error)
+        }
+    }
+
+    @Test
+    fun `verifier rejects expired trust anchor`() = runBlocking {
+        val scenario = TestCredentialFixtures.createScenario(
+            clock = clock,
+            validUntil = clock.instant().plus(1, ChronoUnit.DAYS),
+            trustAnchorValidUntil = clock.instant().minus(1, ChronoUnit.HOURS)
+        )
+        TestCredentialFixtures.withTempDir { dir ->
+            val entries = mapOf(scenario.issuer to scenario.certificateBase64)
+            val repository = TrustListRepository(MapBackedTrustListApi(entries), dir)
+            val service = VerifierService(repository, clock)
+
+            val result = service.verify(scenario.parsed, maxCacheAgeMillis = 0)
+
+            assertFalse(result.success)
+            assertEquals(VerifierService.ERROR_TRUST_ANCHOR_EXPIRED, result.error)
+        }
+    }
 }

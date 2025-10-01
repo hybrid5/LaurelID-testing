@@ -6,33 +6,30 @@ import java.util.concurrent.atomic.AtomicReference
  * Lightweight logger that emits structured telemetry events to a pluggable exporter.
  */
 object StructuredEventLogger {
-    private val exporterRef: AtomicReference<StructuredEventExporter> =
-        AtomicReference(NoopStructuredEventExporter)
+    private val exporterRef: AtomicReference<IEventExporter> =
+        AtomicReference(NoopEventExporter)
 
-    fun registerExporter(exporter: StructuredEventExporter?) {
-        exporterRef.set(exporter ?: NoopStructuredEventExporter)
+    fun registerExporter(exporter: IEventExporter?) {
+        exporterRef.set(exporter ?: NoopEventExporter)
     }
 
     fun log(
         event: String,
         timestampMs: Long = System.currentTimeMillis(),
-        durationMs: Long? = null,
+        scanDurationMs: Long? = null,
         success: Boolean? = null,
         reasonCode: String? = null,
+        trustStale: Boolean? = null,
     ) {
         val structuredEvent = StructuredEvent(
             event = event,
             timestampMs = timestampMs,
-            durationMs = durationMs,
+            scanDurationMs = scanDurationMs,
             success = success,
             reasonCode = reasonCode,
+            trustStale = trustStale,
         )
         exporterRef.get().export(structuredEvent)
     }
 
-    private object NoopStructuredEventExporter : StructuredEventExporter {
-        override fun export(event: StructuredEvent) {
-            // Intentionally empty
-        }
-    }
 }

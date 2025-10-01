@@ -26,9 +26,10 @@ class StructuredEventLoggerTest {
         StructuredEventLogger.log(
             event = "trust_list_refresh",
             timestampMs = timestamp,
-            durationMs = 1200L,
+            scanDurationMs = 1200L,
             success = true,
-            reasonCode = "OK"
+            reasonCode = "OK",
+            trustStale = false,
         )
 
         val events = exporter.snapshot()
@@ -36,9 +37,10 @@ class StructuredEventLoggerTest {
         val recorded = events.first()
         assertEquals("trust_list_refresh", recorded.event)
         assertEquals(timestamp, recorded.timestampMs)
-        assertEquals(1200L, recorded.durationMs)
+        assertEquals(1200L, recorded.scanDurationMs)
         assertEquals(true, recorded.success)
         assertEquals("OK", recorded.reasonCode)
+        assertEquals(false, recorded.trustStale)
     }
 
     @Test
@@ -53,8 +55,9 @@ class StructuredEventLoggerTest {
         val recorded = events.first()
         assertEquals("verification_started", recorded.event)
         assertEquals(999L, recorded.timestampMs)
-        assertNull(recorded.durationMs)
+        assertNull(recorded.scanDurationMs)
         assertNull(recorded.success)
         assertNull(recorded.reasonCode)
+        assertNull(recorded.trustStale)
     }
 }

@@ -10,7 +10,14 @@ class StructuredEventSchemaTest {
     @Test
     fun `structured event exposes expected fields`() {
         val propertyNames = StructuredEvent::class.memberProperties.map { it.name }.sorted()
-        val expected = listOf("durationMs", "event", "reasonCode", "success", "timestampMs")
+        val expected = listOf(
+            "event",
+            "reasonCode",
+            "scanDurationMs",
+            "success",
+            "timestampMs",
+            "trustStale",
+        )
 
         assertEquals(expected, propertyNames)
     }
@@ -24,6 +31,11 @@ class StructuredEventSchemaTest {
 
         assertEquals("trust_list_refresh", event.event)
         assertEquals(100L, event.timestampMs)
-        assertTrue(event.durationMs == null && event.success == null && event.reasonCode == null)
+        assertTrue(
+            event.scanDurationMs == null &&
+                event.success == null &&
+                event.reasonCode == null &&
+                event.trustStale == null,
+        )
     }
 }

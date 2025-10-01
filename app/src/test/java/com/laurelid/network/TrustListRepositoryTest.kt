@@ -108,6 +108,56 @@ class TrustListRepositoryTest {
     }
 
     @Test
+    fun `max age zero allows stale cache within ttl`() = runBlocking {
+        withTempDir { dir ->
+            val api = RecordingTrustListApi(mapOf("AZ" to "cert"))
+            val repository = TrustListRepository(
+                api,
+                dir,
+                defaultMaxAgeMillis = 1_000L,
+                defaultStaleTtlMillis = 5_000L,
+            )
+
+            repository.getOrRefresh(nowMillis = 0L)
+            api.shouldFail = true
+
+            val snapshot = repository.getOrRefresh(
+                nowMillis = 500L,
+                maxAgeMillis = 0L,
+                staleTtlMillis = 2_000L,
+            )
+
+            assertEquals(mapOf("AZ" to "cert"), snapshot.entries)
+            assertTrue(snapshot.stale)
+            assertEquals(2, api.callCount)
+        }
+    }
+
+    @Test
+    fun `stale ttl zero forces failure once max age exceeded`() = runBlocking {
+        withTempDir { dir ->
+            val api = RecordingTrustListApi(mapOf("AZ" to "cert"))
+            val repository = TrustListRepository(
+                api,
+                dir,
+                defaultMaxAgeMillis = 1_000L,
+                defaultStaleTtlMillis = 0L,
+            )
+
+            repository.getOrRefresh(nowMillis = 0L)
+            api.shouldFail = true
+
+            assertFailsWith<IOException> {
+                repository.getOrRefresh(
+                    nowMillis = 2_000L,
+                    maxAgeMillis = 1_000L,
+                    staleTtlMillis = 0L,
+                )
+            }
+        }
+    }
+
+    @Test
     fun `throws when refresh fails and no cache available`() = runBlocking {
         withTempDir { dir ->
             val api = RecordingTrustListApi(mapOf("AZ" to "cert"))

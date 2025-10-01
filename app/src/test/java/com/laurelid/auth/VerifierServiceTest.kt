@@ -69,6 +69,31 @@ class VerifierServiceTest {
     }
 
     @Test
+    fun `verifier fails closed when trust list refresh throws`() = runBlocking {
+        val scenario = TestCredentialFixtures.createScenario(
+            clock = clock,
+            validUntil = clock.instant().plus(1, ChronoUnit.DAYS)
+        )
+        TestCredentialFixtures.withTempDir { dir ->
+            val repository = object : TrustListRepository(MapBackedTrustListApi(emptyMap()), dir) {
+                override suspend fun getOrRefresh(
+                    nowMillis: Long,
+                    maxAgeMillis: Long,
+                    staleTtlMillis: Long,
+                ): Snapshot {
+                    throw java.io.IOException("network down")
+                }
+            }
+            val service = VerifierService(repository, clock)
+
+            val result = service.verify(scenario.parsed, maxCacheAgeMillis = 0)
+
+            assertFalse(result.success)
+            assertEquals(VerifierService.ERROR_TRUST_LIST_UNAVAILABLE, result.error)
+        }
+    }
+
+    @Test
     fun `verifier uses stale trust snapshot`() = runBlocking {
         val scenario = TestCredentialFixtures.createScenario(
             clock = clock,

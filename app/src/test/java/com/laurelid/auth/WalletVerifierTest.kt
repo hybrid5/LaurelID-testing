@@ -91,6 +91,28 @@ class WalletVerifierTest {
     }
 
     @Test
+    fun `tampered device signature is rejected`() = runBlocking {
+        val scenario = TestCredentialFixtures.createScenario(
+            clock = clock,
+            validUntil = clock.instant().plus(1, ChronoUnit.DAYS),
+            tamperDeviceSignature = true
+        )
+        TestCredentialFixtures.withTempDir { dir ->
+            val repository = TrustListRepository(
+                MapBackedTrustListApi(mapOf(scenario.issuer to scenario.certificateBase64)),
+                dir
+            )
+            val verifierService = VerifierService(repository, clock)
+            val verifier = WalletVerifier(verifierService)
+
+            val result = verifier.verify(scenario.parsed, maxCacheAgeMillis = 0)
+
+            assertFalse(result.success)
+            assertEquals(VerifierService.ERROR_INVALID_DEVICE_SIGNATURE, result.error)
+        }
+    }
+
+    @Test
     fun `issuer not in trust list is rejected`() = runBlocking {
         val scenario = TestCredentialFixtures.createScenario(
             clock = clock,

@@ -50,5 +50,6 @@ data class ParsedMdoc(
     val issuer: String,
     val ageOver21: Boolean,
     val issuerAuth: ByteArray? = null,
-    val deviceSignedEntries: Map<String, Map<String, ByteArray>>? = null
+    val deviceSignedEntries: Map<String, Map<String, ByteArray>>? = null,
+    val deviceSignedCose: ByteArray? = null,
 )

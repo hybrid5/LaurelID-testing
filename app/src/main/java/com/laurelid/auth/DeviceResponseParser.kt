@@ -29,6 +29,9 @@ class DeviceResponseParser(
                 ?.takeIf { it.isNotBlank() }
                 ?.let { decoder.decode(it) }
             val deviceSignedEntries = json.optJSONObject(DEVICE_SIGNED_ENTRIES)?.let { parseNameSpaces(it) }
+            val deviceSignedCose = json.optString(DEVICE_SIGNED_COSE, null)
+                ?.takeIf { it.isNotBlank() }
+                ?.let { decoder.decode(it) }
 
             ParsedMdoc(
                 subjectDid = subjectDid,
@@ -36,7 +39,8 @@ class DeviceResponseParser(
                 issuer = issuer,
                 ageOver21 = ageOver21,
                 issuerAuth = issuerAuth,
-                deviceSignedEntries = deviceSignedEntries
+                deviceSignedEntries = deviceSignedEntries,
+                deviceSignedCose = deviceSignedCose
             )
         } catch (jsonException: JSONException) {
             Logger.e(TAG, "Failed to parse device response", jsonException)
@@ -76,5 +80,6 @@ class DeviceResponseParser(
         private const val AGE_OVER_21 = "ageOver21"
         private const val ISSUER_AUTH = "issuerAuth"
         private const val DEVICE_SIGNED_ENTRIES = "deviceSignedEntries"
+        private const val DEVICE_SIGNED_COSE = "deviceSignedCose"
     }
 }

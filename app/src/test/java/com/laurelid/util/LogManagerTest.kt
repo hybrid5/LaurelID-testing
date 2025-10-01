@@ -82,6 +82,7 @@ class LogManagerTest {
         subjectDid = subject,
         docType = "org.iso.18013.5.1.mDL",
         error = null,
+        trustStale = false,
     )
 
     private fun buildConfig() = AdminConfig(

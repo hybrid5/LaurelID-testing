@@ -117,6 +117,7 @@ open class TrustListRepository(
                         timestampMs = System.currentTimeMillis(),
                         success = false,
                         reasonCode = REASON_STALE_EXPIRED,
+                        trustStale = true,
                     )
                     throw throwable
                 }
@@ -128,6 +129,7 @@ open class TrustListRepository(
                     timestampMs = System.currentTimeMillis(),
                     success = !stale,
                     reasonCode = if (stale) REASON_STALE_CACHE else REASON_CACHE_FRESH,
+                    trustStale = stale,
                 )
                 Snapshot(current.entries, stale = stale)
             } else {
@@ -203,7 +205,7 @@ open class TrustListRepository(
                 StructuredEventLogger.log(
                     event = TRUST_LIST_REFRESH_EVENT,
                     timestampMs = attemptStart,
-                    durationMs = duration,
+                    scanDurationMs = duration,
                     success = true,
                     reasonCode = if (attempt == 0) REASON_OK else REASON_RETRY_SUCCESS,
                 )
@@ -217,7 +219,7 @@ open class TrustListRepository(
                 StructuredEventLogger.log(
                     event = TRUST_LIST_REFRESH_EVENT,
                     timestampMs = attemptStart,
-                    durationMs = duration,
+                    scanDurationMs = duration,
                     success = false,
                     reasonCode = failureReasonCode(throwable),
                 )

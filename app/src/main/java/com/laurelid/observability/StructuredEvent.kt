@@ -8,7 +8,8 @@ package com.laurelid.observability
 data class StructuredEvent(
     val event: String,
     val timestampMs: Long,
-    val durationMs: Long? = null,
+    val scanDurationMs: Long? = null,
     val success: Boolean? = null,
     val reasonCode: String? = null,
+    val trustStale: Boolean? = null,
 )

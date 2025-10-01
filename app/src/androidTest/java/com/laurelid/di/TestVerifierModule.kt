@@ -109,6 +109,7 @@ private class FakeVerifierService(
             subjectDid = parsed.subjectDid,
             docType = parsed.docType,
             error = null,
+            trustStale = false,
         )
     }
 }

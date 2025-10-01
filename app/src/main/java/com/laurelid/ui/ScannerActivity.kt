@@ -525,8 +525,8 @@ class ScannerActivity : AppCompatActivity() {
                     issuer = parsedMdoc.issuer,       // Same as above
                     subjectDid = parsedMdoc.subjectDid, // Same as above
                     docType = parsedMdoc.docType,       // Same as above
-                    error = throwable.message ?: "Unknown verification error"
-                    // trustStale will be part of VerificationResult from WalletVerifier
+                    error = throwable.message ?: "Unknown verification error",
+                    trustStale = null,
                 )
             }
 

@@ -10,5 +10,6 @@ data class VerificationResult(
     val issuer: String?,      // Made nullable
     val subjectDid: String?,  // Made nullable
     val docType: String?,     // Made nullable
-    val error: String?
+    val error: String?,
+    val trustStale: Boolean?
 ) : Parcelable

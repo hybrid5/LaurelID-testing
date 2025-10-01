@@ -1,0 +1,12 @@
+/.gradle
+/local.properties
+/.idea
+/build
+/captures
+/.cxx
+*.iml
+/gradle/local-distributions/*.zip
+
+# Project exclude paths
+/app/build/
+/app/build/intermediates/javac/debug/compileDebugJavaWithJavac/classes/

@@ -6,16 +6,18 @@ import java.io.File
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
-class TrustListRepository(
-    private val api: TrustListApi,
+open class TrustListRepository(
+    api: TrustListApi,
     private val cacheDir: File,
     private val defaultMaxAgeMillis: Long = DEFAULT_MAX_AGE_MILLIS,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    initialBaseUrl: String? = null,
 ) {
 
     data class Snapshot(
@@ -32,6 +34,12 @@ class TrustListRepository(
     private val cacheFile: File = File(cacheDir, CACHE_FILE_NAME)
 
     @Volatile
+    private var trustListApi: TrustListApi = api
+
+    @Volatile
+    private var baseUrl: String? = initialBaseUrl
+
+    @Volatile
     private var memoryCache: CacheState? = null
 
     init {
@@ -40,9 +48,9 @@ class TrustListRepository(
         }
     }
 
-    suspend fun getOrRefresh(nowMillis: Long): Snapshot = getOrRefresh(nowMillis, defaultMaxAgeMillis)
+    open suspend fun getOrRefresh(nowMillis: Long): Snapshot = getOrRefresh(nowMillis, defaultMaxAgeMillis)
 
-    suspend fun getOrRefresh(nowMillis: Long, maxAgeMillis: Long): Snapshot = mutex.withLock {
+    open suspend fun getOrRefresh(nowMillis: Long, maxAgeMillis: Long): Snapshot = mutex.withLock {
         val current = ensureCacheLoaded()
         val hasCache = current != null
         val isFresh = when {
@@ -57,7 +65,7 @@ class TrustListRepository(
         }
 
         return try {
-            val remote = api.getTrustList()
+            val remote = trustListApi.getTrustList()
             val sanitized = remote.toMap()
             val updatedState = CacheState(sanitized, nowMillis)
             memoryCache = updatedState
@@ -80,7 +88,7 @@ class TrustListRepository(
         }
     }
 
-    fun cached(): Snapshot? {
+    open fun cached(): Snapshot? {
         val state = memoryCache ?: return null
         val stale = if (defaultMaxAgeMillis <= 0L) {
             true
@@ -89,6 +97,18 @@ class TrustListRepository(
         }
         return Snapshot(state.entries, stale)
     }
+
+    open fun updateEndpoint(newApi: TrustListApi, newBaseUrl: String) {
+        runBlocking {
+            mutex.withLock {
+                trustListApi = newApi
+                baseUrl = newBaseUrl
+                memoryCache = null
+            }
+        }
+    }
+
+    open fun currentBaseUrl(): String? = baseUrl
 
     private suspend fun ensureCacheLoaded(): CacheState? {
         val existing = memoryCache
@@ -172,9 +192,10 @@ class TrustListRepository(
             api: TrustListApi,
             defaultMaxAgeMillis: Long = DEFAULT_MAX_AGE_MILLIS,
             ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+            baseUrl: String = RetrofitModule.DEFAULT_BASE_URL,
         ): TrustListRepository {
             val directory = File(context.filesDir, CACHE_DIRECTORY)
-            return TrustListRepository(api, directory, defaultMaxAgeMillis, ioDispatcher)
+            return TrustListRepository(api, directory, defaultMaxAgeMillis, ioDispatcher, baseUrl)
         }
     }
 }

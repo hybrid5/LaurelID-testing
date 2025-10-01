@@ -43,7 +43,7 @@ subprojects {
   }
 
   dependencies {
-    add("detektPlugins", libs.findLibrary("detekt-formatting").get())
+    add("detektPlugins", "io.gitlab.arturbosch.detekt:detekt-formatting:1.23.6")
   }
 }
 
@@ -60,7 +60,10 @@ tasks.register("ciStaticAnalysis") {
 tasks.register("ciUnitTest") {
   group = "verification"
   description = "Executes JVM unit tests for debug builds."
-  dependsOn(":app:testDebugUnitTest")
+  dependsOn(
+    ":app:testStagingDebugUnitTest",
+    ":app:testProductionDebugUnitTest",
+  )
 }
 
 tasks.register("ciRelease") {

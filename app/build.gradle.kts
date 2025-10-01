@@ -74,6 +74,8 @@ android {
     keyPassword = keyPasswordValue
   }
 
+  val debugSigning = signingConfigs.getByName("debug")
+
   buildTypes {
     release {
       isMinifyEnabled = true
@@ -86,11 +88,7 @@ android {
         !releaseSigning.keyAlias.isNullOrBlank() &&
         !releaseSigning.storePassword.isNullOrBlank() &&
         !releaseSigning.keyPassword.isNullOrBlank()
-      signingConfig = if (hasReleaseSigning) {
-        releaseSigning
-      } else {
-        signingConfigs.debug
-      }
+      signingConfig = if (hasReleaseSigning) releaseSigning else debugSigning
     }
   }
 

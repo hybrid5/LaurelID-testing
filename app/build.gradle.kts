@@ -136,6 +136,8 @@ dependencies {
   testImplementation(libs.cose)
   testImplementation(libs.bouncycastle.bcprov)
   testImplementation(libs.bouncycastle.bcpkix)
+  testImplementation(libs.androidx.test.core)
+  testImplementation(libs.robolectric)
   androidTestImplementation(libs.androidx.test.ext.junit)
   androidTestImplementation(libs.androidx.test.runner)
   androidTestImplementation(libs.androidx.test.core)

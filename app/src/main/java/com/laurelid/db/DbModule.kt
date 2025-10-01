@@ -20,8 +20,9 @@ object DbModule {
         return Room.databaseBuilder(
             context,
             AppDb::class.java,
-            "laurelid.db"
-        ).fallbackToDestructiveMigration()
+            "laurelid.db",
+        )
+            .addMigrations(AppDb.MIGRATION_1_2)
             .build()
     }
 }

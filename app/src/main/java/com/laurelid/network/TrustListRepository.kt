@@ -2,11 +2,13 @@ package com.laurelid.network
 
 import android.content.Context
 import com.laurelid.BuildConfig
+import com.laurelid.observability.StructuredEventLogger
 import com.laurelid.util.Logger
 import java.io.File
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -20,7 +22,23 @@ open class TrustListRepository(
     private val defaultStaleTtlMillis: Long = DEFAULT_STALE_TTL_MILLIS,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     initialBaseUrl: String? = null,
+    private val delayProvider: suspend (Long) -> Unit = { delay(it) },
+    private val retryPolicy: RetryPolicy = RetryPolicy(),
 ) {
+
+    data class RetryPolicy(
+        val maxAttempts: Int = DEFAULT_MAX_ATTEMPTS,
+        val initialDelayMillis: Long = DEFAULT_INITIAL_DELAY_MILLIS,
+        val maxDelayMillis: Long = DEFAULT_MAX_DELAY_MILLIS,
+        val backoffMultiplier: Double = DEFAULT_BACKOFF_MULTIPLIER,
+    ) {
+        init {
+            require(maxAttempts >= 1) { "maxAttempts must be >= 1" }
+            require(initialDelayMillis >= 0L) { "initialDelayMillis must be >= 0" }
+            require(maxDelayMillis >= 0L) { "maxDelayMillis must be >= 0" }
+            require(backoffMultiplier >= 1.0) { "backoffMultiplier must be >= 1.0" }
+        }
+    }
 
     data class Snapshot(
         val entries: Map<String, String>,
@@ -72,7 +90,7 @@ open class TrustListRepository(
         }
 
         return try {
-            val remote = trustListApi.getTrustList()
+            val remote = fetchTrustListWithRetry()
             val sanitized = remote.toMap()
             val updatedState = CacheState(sanitized, nowMillis)
             memoryCache = updatedState
@@ -94,11 +112,23 @@ open class TrustListRepository(
 
                 if (!allowStale) {
                     Logger.e(TAG, "Cached trust list expired beyond stale TTL; failing closed")
+                    StructuredEventLogger.log(
+                        event = TRUST_LIST_CACHE_EXPIRED_EVENT,
+                        timestampMs = System.currentTimeMillis(),
+                        success = false,
+                        reasonCode = REASON_STALE_EXPIRED,
+                    )
                     throw throwable
                 }
 
                 val stale = staleThreshold <= 0L || age > staleThreshold
                 Logger.w(TAG, "Serving cached trust list (stale=$stale)")
+                StructuredEventLogger.log(
+                    event = TRUST_LIST_STALE_CACHE_SERVED_EVENT,
+                    timestampMs = System.currentTimeMillis(),
+                    success = !stale,
+                    reasonCode = if (stale) REASON_STALE_CACHE else REASON_CACHE_FRESH,
+                )
                 Snapshot(current.entries, stale = stale)
             } else {
                 throw throwable
@@ -141,6 +171,72 @@ open class TrustListRepository(
     }
 
     open fun currentBaseUrl(): String? = baseUrl
+
+    private fun computeNextDelay(previousDelayMillis: Long): Long {
+        val base = if (previousDelayMillis <= 0L) 1L else previousDelayMillis
+        val scaled = base * retryPolicy.backoffMultiplier
+        return scaled.toLong().coerceAtLeast(1L)
+    }
+
+    private fun failureReasonCode(throwable: Throwable): String {
+        val kotlinName = throwable::class.simpleName
+        if (!kotlinName.isNullOrBlank()) {
+            return kotlinName
+        }
+        val javaName = throwable.javaClass.simpleName
+        if (javaName.isNotBlank()) {
+            return javaName
+        }
+        return throwable.javaClass.name.substringAfterLast('.')
+    }
+
+    private suspend fun fetchTrustListWithRetry(): Map<String, String> {
+        var attempt = 0
+        var nextDelayMillis = retryPolicy.initialDelayMillis
+        var lastError: Throwable? = null
+
+        while (attempt < retryPolicy.maxAttempts) {
+            val attemptStart = System.currentTimeMillis()
+            try {
+                val payload = trustListApi.getTrustList()
+                val duration = System.currentTimeMillis() - attemptStart
+                StructuredEventLogger.log(
+                    event = TRUST_LIST_REFRESH_EVENT,
+                    timestampMs = attemptStart,
+                    durationMs = duration,
+                    success = true,
+                    reasonCode = if (attempt == 0) REASON_OK else REASON_RETRY_SUCCESS,
+                )
+                if (attempt > 0) {
+                    Logger.i(TAG, "Trust list refresh succeeded after $attempt retries")
+                }
+                return payload
+            } catch (throwable: Throwable) {
+                lastError = throwable
+                val duration = System.currentTimeMillis() - attemptStart
+                StructuredEventLogger.log(
+                    event = TRUST_LIST_REFRESH_EVENT,
+                    timestampMs = attemptStart,
+                    durationMs = duration,
+                    success = false,
+                    reasonCode = failureReasonCode(throwable),
+                )
+                Logger.w(TAG, "Trust list refresh attempt ${attempt + 1} failed", throwable)
+                attempt += 1
+                if (attempt >= retryPolicy.maxAttempts) {
+                    break
+                }
+
+                val sleepMillis = nextDelayMillis.coerceAtMost(retryPolicy.maxDelayMillis)
+                if (sleepMillis > 0L) {
+                    delayProvider.invoke(sleepMillis)
+                }
+                nextDelayMillis = computeNextDelay(nextDelayMillis)
+            }
+        }
+
+        throw lastError ?: IllegalStateException("Unable to refresh trust list")
+    }
 
     private suspend fun ensureCacheLoaded(): CacheState? {
         val existing = memoryCache
@@ -219,6 +315,18 @@ open class TrustListRepository(
         private const val KEY_ENTRIES = "entries"
         private val DEFAULT_MAX_AGE_MILLIS = TimeUnit.HOURS.toMillis(12)
         private val DEFAULT_STALE_TTL_MILLIS = TimeUnit.DAYS.toMillis(3)
+        internal const val DEFAULT_MAX_ATTEMPTS = 3
+        private const val DEFAULT_INITIAL_DELAY_MILLIS = 500L
+        private const val DEFAULT_MAX_DELAY_MILLIS = 5_000L
+        private const val DEFAULT_BACKOFF_MULTIPLIER = 2.0
+        private const val TRUST_LIST_REFRESH_EVENT = "trust_list_refresh"
+        private const val TRUST_LIST_STALE_CACHE_SERVED_EVENT = "trust_list_stale_cache_served"
+        private const val TRUST_LIST_CACHE_EXPIRED_EVENT = "trust_list_cache_expired"
+        private const val REASON_OK = "OK"
+        private const val REASON_RETRY_SUCCESS = "RETRY_SUCCESS"
+        private const val REASON_STALE_CACHE = "STALE_CACHE"
+        private const val REASON_CACHE_FRESH = "CACHE_FRESH"
+        private const val REASON_STALE_EXPIRED = "STALE_TTL_EXCEEDED"
 
         fun create(
             context: Context,

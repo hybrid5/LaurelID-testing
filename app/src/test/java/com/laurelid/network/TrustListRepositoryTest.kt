@@ -1,7 +1,11 @@
 package com.laurelid.network
 
+import com.laurelid.observability.InMemoryStructuredEventExporter
+import com.laurelid.observability.StructuredEventLogger
 import java.io.IOException
 import kotlin.io.path.createTempDirectory
+import kotlin.test.AfterTest
+import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -12,6 +16,18 @@ import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
 
 class TrustListRepositoryTest {
+    private lateinit var exporter: InMemoryStructuredEventExporter
+
+    @BeforeTest
+    fun setUp() {
+        exporter = InMemoryStructuredEventExporter()
+        StructuredEventLogger.registerExporter(exporter)
+    }
+
+    @AfterTest
+    fun tearDown() {
+        StructuredEventLogger.registerExporter(null)
+    }
 
     @Test
     fun `fetches remote list and caches to disk`() = runBlocking {
@@ -52,6 +68,7 @@ class TrustListRepositoryTest {
                 dir,
                 defaultMaxAgeMillis = 1_000L,
                 defaultStaleTtlMillis = 5_000L,
+                delayProvider = { _ -> },
             )
 
             repository.getOrRefresh(nowMillis = 0L)
@@ -61,7 +78,9 @@ class TrustListRepositoryTest {
 
             assertEquals(mapOf("AZ" to "cert"), snapshot.entries)
             assertTrue(snapshot.stale)
-            assertEquals(2, api.callCount)
+            assertEquals(1 + TrustListRepository.DEFAULT_MAX_ATTEMPTS, api.callCount)
+            val events = exporter.snapshot()
+            assertTrue(events.any { it.event == "trust_list_stale_cache_served" })
         }
     }
 
@@ -74,6 +93,7 @@ class TrustListRepositoryTest {
                 dir,
                 defaultMaxAgeMillis = 1_000L,
                 defaultStaleTtlMillis = 2_000L,
+                delayProvider = { _ -> },
             )
 
             repository.getOrRefresh(nowMillis = 0L)
@@ -116,6 +136,7 @@ class TrustListRepositoryTest {
                 dir,
                 defaultMaxAgeMillis = 1_000L,
                 defaultStaleTtlMillis = 5_000L,
+                delayProvider = { _ -> },
             )
 
             repository.getOrRefresh(nowMillis = 0L)
@@ -129,7 +150,7 @@ class TrustListRepositoryTest {
 
             assertEquals(mapOf("AZ" to "cert"), snapshot.entries)
             assertTrue(snapshot.stale)
-            assertEquals(2, api.callCount)
+            assertEquals(1 + TrustListRepository.DEFAULT_MAX_ATTEMPTS, api.callCount)
         }
     }
 
@@ -142,6 +163,7 @@ class TrustListRepositoryTest {
                 dir,
                 defaultMaxAgeMillis = 1_000L,
                 defaultStaleTtlMillis = 0L,
+                delayProvider = { _ -> },
             )
 
             repository.getOrRefresh(nowMillis = 0L)
@@ -162,12 +184,17 @@ class TrustListRepositoryTest {
         withTempDir { dir ->
             val api = RecordingTrustListApi(mapOf("AZ" to "cert"))
             api.shouldFail = true
-            val repository = TrustListRepository(api, dir, defaultMaxAgeMillis = 1_000L)
+            val repository = TrustListRepository(
+                api,
+                dir,
+                defaultMaxAgeMillis = 1_000L,
+                delayProvider = { _ -> },
+            )
 
             assertFailsWith<IOException> {
                 repository.getOrRefresh(nowMillis = 0L)
             }
-            assertEquals(1, api.callCount)
+            assertEquals(TrustListRepository.DEFAULT_MAX_ATTEMPTS, api.callCount)
         }
     }
 
@@ -191,6 +218,53 @@ class TrustListRepositoryTest {
         }
     }
 
+    @Test
+    fun `retries transient failures before succeeding`() = runBlocking {
+        withTempDir { dir ->
+            val api = RecordingTrustListApi(mapOf("AZ" to "cert"))
+            api.transientFailuresBeforeSuccess = 2
+            val repository = TrustListRepository(
+                api,
+                dir,
+                defaultMaxAgeMillis = 10_000L,
+                delayProvider = { _ -> },
+            )
+
+            val snapshot = repository.getOrRefresh(nowMillis = 0L)
+
+            assertEquals(mapOf("AZ" to "cert"), snapshot.entries)
+            assertFalse(snapshot.stale)
+            assertEquals(3, api.callCount)
+            val events = exporter.snapshot().filter { it.event == "trust_list_refresh" }
+            assertEquals(listOf(false, false, true), events.mapNotNull { it.success })
+        }
+    }
+
+    @Test
+    fun `emits telemetry when cache too stale`() = runBlocking {
+        withTempDir { dir ->
+            val api = RecordingTrustListApi(mapOf("AZ" to "cert"))
+            val repository = TrustListRepository(
+                api,
+                dir,
+                defaultMaxAgeMillis = 1_000L,
+                defaultStaleTtlMillis = 2_000L,
+                delayProvider = { _ -> },
+            )
+
+            repository.getOrRefresh(nowMillis = 0L)
+            api.shouldFail = true
+
+            assertFailsWith<IOException> {
+                repository.getOrRefresh(nowMillis = 5_000L, maxAgeMillis = 1_000L)
+            }
+
+            val events = exporter.snapshot().filter { it.event == "trust_list_cache_expired" }
+            assertEquals(1, events.size)
+            assertEquals(false, events.first().success)
+        }
+    }
+
     private fun <T> withTempDir(block: (java.io.File) -> T): T {
         val directory = createTempDirectory("trust-list-cache").toFile()
         return try {
@@ -204,10 +278,15 @@ class TrustListRepositoryTest {
         private var payload: Map<String, String>,
     ) : TrustListApi {
         var shouldFail: Boolean = false
+        var transientFailuresBeforeSuccess: Int = 0
         var callCount: Int = 0
 
         override suspend fun getTrustList(): Map<String, String> {
             callCount += 1
+            if (transientFailuresBeforeSuccess > 0) {
+                transientFailuresBeforeSuccess -= 1
+                throw IOException("transient network failure")
+            }
             if (shouldFail) {
                 throw IOException("network unavailable")
             }

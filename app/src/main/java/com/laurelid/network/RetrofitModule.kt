@@ -15,6 +15,10 @@ import java.util.concurrent.TimeUnit
 
 object RetrofitModule {
     private const val CACHE_SIZE_BYTES = 5L * 1024 * 1024 // 5 MiB
+    private const val CONNECT_TIMEOUT_SECONDS = 10L
+    private const val READ_TIMEOUT_SECONDS = 20L
+    private const val WRITE_TIMEOUT_SECONDS = 20L
+    private const val CALL_TIMEOUT_SECONDS = 25L
 
     private val moshi: Moshi by lazy {
         Moshi.Builder().build()
@@ -45,9 +49,11 @@ object RetrofitModule {
         val builder = OkHttpClient.Builder()
             .cache(cache)
             .addInterceptor(logging)
-            .connectTimeout(10, TimeUnit.SECONDS)
-            .readTimeout(10, TimeUnit.SECONDS)
-            .writeTimeout(10, TimeUnit.SECONDS)
+            .connectTimeout(CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .readTimeout(READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .writeTimeout(WRITE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .callTimeout(CALL_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .retryOnConnectionFailure(true)
             .connectionSpecs(listOf(tlsSpec))
 
         val pins = TrustListEndpointPolicy.certificatePinsFor(baseUrl)

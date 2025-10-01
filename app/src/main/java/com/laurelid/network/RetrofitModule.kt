@@ -3,7 +3,10 @@ package com.laurelid.network
 import android.content.Context
 import com.squareup.moshi.Moshi
 import okhttp3.Cache
+import okhttp3.CertificatePinner
+import okhttp3.ConnectionSpec
 import okhttp3.OkHttpClient
+import okhttp3.TlsVersion
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.moshi.MoshiConverterFactory
@@ -11,34 +14,51 @@ import java.io.File
 import java.util.concurrent.TimeUnit
 
 object RetrofitModule {
-    const val DEFAULT_BASE_URL = "https://trustlist-placeholder.example.com/"
     private const val CACHE_SIZE_BYTES = 5L * 1024 * 1024 // 5 MiB
 
     private val moshi: Moshi by lazy {
         Moshi.Builder().build()
     }
 
-    fun provideTrustListApi(context: Context, baseUrl: String = DEFAULT_BASE_URL): TrustListApi {
+    fun provideTrustListApi(
+        context: Context,
+        baseUrl: String = TrustListEndpointPolicy.defaultBaseUrl,
+    ): TrustListApi {
+        val normalizedBaseUrl = TrustListEndpointPolicy.requireEndpointAllowed(baseUrl)
         val retrofit = Retrofit.Builder()
-            .baseUrl(baseUrl) // TODO: Replace with production trust list host.
-            .client(provideOkHttpClient(context))
+            .baseUrl(normalizedBaseUrl)
+            .client(provideOkHttpClient(context, normalizedBaseUrl))
             .addConverterFactory(MoshiConverterFactory.create(moshi))
             .build()
         return retrofit.create(TrustListApi::class.java)
     }
 
-    private fun provideOkHttpClient(context: Context): OkHttpClient {
+    private fun provideOkHttpClient(context: Context, baseUrl: String): OkHttpClient {
         val cacheDir = File(context.cacheDir, "http_cache")
         val cache = Cache(cacheDir, CACHE_SIZE_BYTES)
         val logging = HttpLoggingInterceptor().apply {
             level = HttpLoggingInterceptor.Level.BASIC
         }
-        return OkHttpClient.Builder()
+        val tlsSpec = ConnectionSpec.Builder(ConnectionSpec.MODERN_TLS)
+            .tlsVersions(TlsVersion.TLS_1_3, TlsVersion.TLS_1_2)
+            .build()
+        val builder = OkHttpClient.Builder()
             .cache(cache)
             .addInterceptor(logging)
             .connectTimeout(10, TimeUnit.SECONDS)
             .readTimeout(10, TimeUnit.SECONDS)
             .writeTimeout(10, TimeUnit.SECONDS)
-            .build()
+            .connectionSpecs(listOf(tlsSpec))
+
+        val pins = TrustListEndpointPolicy.certificatePinsFor(baseUrl)
+        if (pins.isNotEmpty()) {
+            val pinnerBuilder = CertificatePinner.Builder()
+            pins.forEach { (host, pin) ->
+                pinnerBuilder.add(host, pin)
+            }
+            builder.certificatePinner(pinnerBuilder.build())
+        }
+
+        return builder.build()
     }
 }

@@ -2,6 +2,7 @@ package com.laurelid.config
 
 import android.content.Context
 import androidx.core.content.edit
+import com.laurelid.network.TrustListEndpointPolicy
 import kotlin.math.max
 
 class ConfigManager(context: Context) {
@@ -12,20 +13,28 @@ class ConfigManager(context: Context) {
         val venueId = prefs.getString(KEY_VENUE_ID, "").orEmpty()
         val refreshMinutes = prefs.getInt(KEY_REFRESH_MINUTES, AdminConfig.DEFAULT_TRUST_REFRESH_MINUTES)
         val endpoint = prefs.getString(KEY_API_ENDPOINT, "").orEmpty()
+        val sanitizedEndpoint = TrustListEndpointPolicy.normalizeOverrideOrNull(
+            endpoint,
+            TrustListEndpointPolicy.allowOverride,
+        ).orEmpty()
         val demoMode = prefs.getBoolean(KEY_DEMO_MODE, false)
         return AdminConfig(
             venueId = venueId,
             trustRefreshIntervalMinutes = sanitizeInterval(refreshMinutes),
-            apiEndpointOverride = endpoint,
+            apiEndpointOverride = sanitizedEndpoint,
             demoMode = demoMode,
         )
     }
 
     fun saveConfig(config: AdminConfig) {
+        val sanitizedEndpoint = TrustListEndpointPolicy.normalizeOverrideOrNull(
+            config.apiEndpointOverride,
+            TrustListEndpointPolicy.allowOverride,
+        ).orEmpty()
         prefs.edit {
             putString(KEY_VENUE_ID, config.venueId)
             putInt(KEY_REFRESH_MINUTES, sanitizeInterval(config.trustRefreshIntervalMinutes))
-            putString(KEY_API_ENDPOINT, config.apiEndpointOverride)
+            putString(KEY_API_ENDPOINT, sanitizedEndpoint)
             putBoolean(KEY_DEMO_MODE, config.demoMode)
         }
     }

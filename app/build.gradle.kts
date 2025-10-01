@@ -19,9 +19,52 @@ android {
     testInstrumentationRunner = "com.google.dagger.hilt.android.testing.HiltTestRunner"
   }
 
+  flavorDimensions += "environment"
+
+  productFlavors {
+    create("staging") {
+      dimension = "environment"
+      buildConfigField("String", "TRUST_LIST_BASE_URL", "\"https://trustlist-placeholder.example.com/\"")
+      buildConfigField("boolean", "ALLOW_TRUST_LIST_OVERRIDE", "true")
+      buildConfigField(
+        "String",
+        "TRUST_LIST_CERT_PINS",
+        "\"sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\"",
+      )
+    }
+    create("production") {
+      dimension = "environment"
+      buildConfigField("String", "TRUST_LIST_BASE_URL", "\"https://trustlist-placeholder.example.com/\"")
+      buildConfigField("boolean", "ALLOW_TRUST_LIST_OVERRIDE", "false")
+      buildConfigField(
+        "String",
+        "TRUST_LIST_CERT_PINS",
+        "\"sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\"",
+      )
+    }
+  }
+
   buildFeatures {
     viewBinding = true
     buildConfig = true
+  }
+
+  val releaseSigning = signingConfigs.create("release") {
+    val keystorePath = System.getenv("LAURELID_RELEASE_KEYSTORE")
+      ?: project.findProperty("laurelIdReleaseKeystore") as? String
+    val keystorePassword = System.getenv("LAURELID_RELEASE_KEYSTORE_PASSWORD")
+      ?: project.findProperty("laurelIdReleaseKeystorePassword") as? String
+    val keyAliasValue = System.getenv("LAURELID_RELEASE_KEY_ALIAS")
+      ?: project.findProperty("laurelIdReleaseKeyAlias") as? String
+    val keyPasswordValue = System.getenv("LAURELID_RELEASE_KEY_PASSWORD")
+      ?: project.findProperty("laurelIdReleaseKeyPassword") as? String
+
+    if (!keystorePath.isNullOrBlank()) {
+      storeFile = file(keystorePath)
+    }
+    storePassword = keystorePassword
+    keyAlias = keyAliasValue
+    keyPassword = keyPasswordValue
   }
 
   buildTypes {
@@ -32,7 +75,15 @@ android {
           getDefaultProguardFile("proguard-android-optimize.txt"),
           "proguard-rules.pro",
       )
-      signingConfig = signingConfigs.debug
+      val hasReleaseSigning = releaseSigning.storeFile != null &&
+        !releaseSigning.keyAlias.isNullOrBlank() &&
+        !releaseSigning.storePassword.isNullOrBlank() &&
+        !releaseSigning.keyPassword.isNullOrBlank()
+      signingConfig = if (hasReleaseSigning) {
+        releaseSigning
+      } else {
+        signingConfigs.debug
+      }
     }
   }
 

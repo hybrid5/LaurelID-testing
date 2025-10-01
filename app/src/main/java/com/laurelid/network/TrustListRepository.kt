@@ -37,7 +37,7 @@ open class TrustListRepository(
     private var trustListApi: TrustListApi = api
 
     @Volatile
-    private var baseUrl: String? = initialBaseUrl
+    private var baseUrl: String? = initialBaseUrl?.let { TrustListEndpointPolicy.requireEndpointAllowed(it) }
 
     @Volatile
     private var memoryCache: CacheState? = null
@@ -99,10 +99,11 @@ open class TrustListRepository(
     }
 
     open fun updateEndpoint(newApi: TrustListApi, newBaseUrl: String) {
+        val sanitizedUrl = TrustListEndpointPolicy.requireEndpointAllowed(newBaseUrl)
         runBlocking {
             mutex.withLock {
                 trustListApi = newApi
-                baseUrl = newBaseUrl
+                baseUrl = sanitizedUrl
                 memoryCache = null
             }
         }
@@ -192,10 +193,11 @@ open class TrustListRepository(
             api: TrustListApi,
             defaultMaxAgeMillis: Long = DEFAULT_MAX_AGE_MILLIS,
             ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
-            baseUrl: String = RetrofitModule.DEFAULT_BASE_URL,
+            baseUrl: String = TrustListEndpointPolicy.defaultBaseUrl,
         ): TrustListRepository {
             val directory = File(context.filesDir, CACHE_DIRECTORY)
-            return TrustListRepository(api, directory, defaultMaxAgeMillis, ioDispatcher, baseUrl)
+            val sanitizedBaseUrl = TrustListEndpointPolicy.requireEndpointAllowed(baseUrl)
+            return TrustListRepository(api, directory, defaultMaxAgeMillis, ioDispatcher, sanitizedBaseUrl)
         }
     }
 }

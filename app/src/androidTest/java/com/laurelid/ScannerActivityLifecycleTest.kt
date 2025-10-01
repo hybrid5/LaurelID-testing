@@ -10,7 +10,7 @@ import dagger.hilt.android.testing.HiltAndroidRule
 import dagger.hilt.android.testing.HiltAndroidTest
 import com.laurelid.config.AdminConfig
 import com.laurelid.config.ConfigManager
-import com.laurelid.network.RetrofitModule
+import com.laurelid.network.TrustListEndpointPolicy
 import com.laurelid.ui.ScannerActivity
 import org.junit.After
 import org.junit.Before
@@ -50,7 +50,7 @@ class ScannerActivityLifecycleTest {
 
         ActivityScenario.launch(ScannerActivity::class.java).use { scenario ->
             val baseUrl = scenario.withActivity { it.currentBaseUrlForTest() }
-            assertEquals(RetrofitModule.DEFAULT_BASE_URL, baseUrl)
+            assertEquals(TrustListEndpointPolicy.defaultBaseUrl, baseUrl)
         }
     }
 
@@ -60,7 +60,7 @@ class ScannerActivityLifecycleTest {
 
         ActivityScenario.launch(ScannerActivity::class.java).use { scenario ->
             val initialBaseUrl = scenario.withActivity { it.currentBaseUrlForTest() }
-            assertEquals(RetrofitModule.DEFAULT_BASE_URL, initialBaseUrl)
+            assertEquals(TrustListEndpointPolicy.defaultBaseUrl, initialBaseUrl)
 
             val overrideUrl = "https://override.example.com/"
             configManager.saveConfig(AdminConfig(apiEndpointOverride = overrideUrl, demoMode = true))

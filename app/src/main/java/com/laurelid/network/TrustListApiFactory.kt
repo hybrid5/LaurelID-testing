@@ -10,6 +10,7 @@ class TrustListApiFactory @Inject constructor(
     @ApplicationContext private val context: Context,
 ) {
     fun create(baseUrl: String): TrustListApi {
-        return RetrofitModule.provideTrustListApi(context, baseUrl)
+        val normalized = TrustListEndpointPolicy.requireEndpointAllowed(baseUrl)
+        return RetrofitModule.provideTrustListApi(context, normalized)
     }
 }

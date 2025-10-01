@@ -4,7 +4,6 @@ import android.content.Context
 import com.laurelid.config.AdminConfig
 import com.laurelid.data.VerificationResult
 import java.io.File
-import java.io.FileWriter
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 import org.json.JSONObject
@@ -12,7 +11,23 @@ import org.json.JSONObject
 object LogManager {
     private const val LOG_DIR = "logs"
     private const val LOG_FILE = "verify.log"
+    private const val MIGRATION_PREFS = "log_migrations"
+    private const val KEY_LEGACY_PURGED = "legacy_logs_purged"
     private val TIMESTAMP_REGEX = Regex("\"ts\":(\\d+)")
+
+    fun purgeLegacyLogs(context: Context) {
+        val prefs = context.getSharedPreferences(MIGRATION_PREFS, Context.MODE_PRIVATE)
+        if (prefs.getBoolean(KEY_LEGACY_PURGED, false)) {
+            return
+        }
+
+        val dir = File(context.filesDir, LOG_DIR)
+        if (dir.exists()) {
+            dir.deleteRecursively()
+        }
+
+        prefs.edit().putBoolean(KEY_LEGACY_PURGED, true).apply()
+    }
 
     fun appendVerification(context: Context, result: VerificationResult, config: AdminConfig, demoModeUsed: Boolean) {
         try {
@@ -25,16 +40,11 @@ object LogManager {
                 put("ts", System.currentTimeMillis())
                 put("venueId", config.venueId)
                 put("success", result.success)
-                put("subjectDid", result.subjectDid)
-                put("docType", result.docType)
-                put("issuer", result.issuer)
-                put("ageOver21", result.ageOver21)
+                put("ageOver21", result.ageOver21 == true)
                 put("error", result.error)
                 put("demoMode", demoModeUsed)
             }.toString()
-            FileWriter(file, true).use { writer ->
-                writer.appendLine(payload)
-            }
+            file.appendText("$payload\n")
         } catch (ioException: IOException) {
             Logger.e(TAG, "Unable to append verification log", ioException)
         }

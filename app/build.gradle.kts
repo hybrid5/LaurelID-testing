@@ -15,6 +15,7 @@ android {
     targetSdk = 35
     versionCode = 1
     versionName = "1.0"
+    testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
 
   buildFeatures {
@@ -50,4 +51,16 @@ dependencies {
   implementation(libs.retrofit.moshi)
   implementation(libs.okhttp)
   implementation(libs.okhttp.logging)
+  implementation(libs.androidx.security.crypto)
+  implementation(libs.cbor)
+
+  testImplementation(kotlin("test"))
+  testImplementation(libs.cose)
+  testImplementation(libs.bouncycastle.bcprov)
+  testImplementation(libs.bouncycastle.bcpkix)
+  androidTestImplementation(libs.androidx.test.ext.junit)
+  androidTestImplementation(libs.androidx.test.runner)
+  androidTestImplementation(libs.androidx.test.core)
+  androidTestImplementation(libs.espresso.core)
+  androidTestImplementation(libs.espresso.intents)
 }

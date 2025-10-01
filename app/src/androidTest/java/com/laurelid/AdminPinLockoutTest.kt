@@ -74,4 +74,27 @@ class AdminPinLockoutTest {
                 .check(matches(isDisplayed()))
         }
     }
+
+    @Test
+    fun lockoutPreventsAccessEvenWithCorrectPin() {
+        ActivityScenario.launch(ScannerActivity::class.java).use { scenario ->
+            var decorView: android.view.View? = null
+            scenario.onActivity { activity ->
+                decorView = activity.window.decorView
+                val method = activity.javaClass.getDeclaredMethod("handleAdminPinEntry", String::class.java)
+                method.isAccessible = true
+                repeat(AdminPinManager.MAX_ATTEMPTS) {
+                    method.invoke(activity, "000000")
+                }
+                method.invoke(activity, "123456")
+            }
+
+            val rootView = requireNotNull(decorView)
+            InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+
+            onView(withText(startsWith("Too many attempts")))
+                .inRoot(withDecorView(not(rootView)))
+                .check(matches(isDisplayed()))
+        }
+    }
 }

@@ -26,6 +26,7 @@ import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.VisibleForTesting
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.camera.core.CameraSelector
@@ -44,12 +45,14 @@ import com.laurelid.R
 import com.laurelid.auth.ISO18013Parser
 import com.laurelid.auth.ParsedMdoc // Ensure this class exists and has necessary fields
 import com.laurelid.auth.WalletVerifier
-import com.laurelid.ui.AdminActivity // Corrected import
 import com.laurelid.config.AdminConfig
+import com.laurelid.config.AdminPinManager
+import com.laurelid.config.EncryptedAdminPinStorage
 import com.laurelid.config.ConfigManager
 import com.laurelid.data.VerificationResult // Ensure this is Parcelable
 import com.laurelid.db.DbModule
 import com.laurelid.db.VerificationEntity
+import com.laurelid.kiosk.KioskWatchdogService
 import com.laurelid.network.RetrofitModule
 import com.laurelid.network.TrustListRepository
 import com.laurelid.pos.TransactionManager
@@ -75,6 +78,7 @@ class ScannerActivity : AppCompatActivity() {
     private lateinit var progressBar: ProgressBar
     private lateinit var debugButton: Button
     private lateinit var configManager: ConfigManager
+    private lateinit var adminPinManager: AdminPinManager
 
     private val parser = ISO18013Parser()
     private val cameraExecutor: ExecutorService by lazy { Executors.newSingleThreadExecutor() }
@@ -86,8 +90,8 @@ class ScannerActivity : AppCompatActivity() {
         )
     }
 
-    private lateinit var trustListRepository: TrustListRepository
-    private lateinit var walletVerifier: WalletVerifier
+    private var trustListRepository: TrustListRepository? = null
+    private var walletVerifier: WalletVerifier? = null
     private val verificationDao by lazy { DbModule.provideVerificationDao(applicationContext) }
     private val transactionManager by lazy { TransactionManager() }
 
@@ -117,14 +121,19 @@ class ScannerActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_scanner)
+        KioskUtil.prepareForLockscreen(this)
         KioskUtil.applyKioskDecor(window)
         KioskUtil.blockBackPress(this)
 
         configManager = ConfigManager(applicationContext)
+        adminPinManager = AdminPinManager(EncryptedAdminPinStorage(applicationContext))
         currentConfig = configManager.getConfig()
         currentBaseUrl = resolveBaseUrl(currentConfig) // Initialize before first network dependency build
 
         rebuildNetworkDependencies(currentConfig, true) // Force initial build
+
+        KioskWatchdogService.start(this)
+        enterLockTaskIfPermitted()
 
         nfcAdapter = NfcAdapter.getDefaultAdapter(this)
         bindViews()
@@ -158,15 +167,10 @@ class ScannerActivity : AppCompatActivity() {
             }
             enableForegroundDispatch()
         }
+        KioskUtil.prepareForLockscreen(this)
         KioskUtil.setImmersiveMode(window)
-
-        if (!currentConfig.demoMode && KioskUtil.isLockTaskPermitted(this)) {
-            try {
-                startLockTask()
-            } catch (e: Exception) { // Catch generic exception as startLockTask can throw various
-                Logger.w(TAG, "Unable to enter lock task mode", e)
-            }
-        }
+        enterLockTaskIfPermitted()
+        KioskWatchdogService.notifyScannerVisible(true)
     }
 
     override fun onPause() {
@@ -177,6 +181,13 @@ class ScannerActivity : AppCompatActivity() {
         stopDemoMode()
         // No need to call stopCamera() explicitly if using ProcessCameraProvider,
         // as it's lifecycle-aware. It will unbind when the lifecycle stops.
+    }
+
+    override fun onStop() {
+        super.onStop()
+        if (!hasWindowFocus()) {
+            KioskUtil.setImmersiveMode(window)
+        }
     }
 
     override fun onNewIntent(intent: Intent) { // Changed to non-nullable Intent
@@ -194,6 +205,19 @@ class ScannerActivity : AppCompatActivity() {
             cameraExecutor.shutdown()
         }
         barcodeScanner.close()
+        KioskWatchdogService.notifyScannerVisible(false)
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) {
+            KioskUtil.setImmersiveMode(window)
+        }
+    }
+
+    override fun onUserInteraction() {
+        super.onUserInteraction()
+        KioskUtil.setImmersiveMode(window)
     }
 
     override fun onBackPressed() {
@@ -239,7 +263,7 @@ class ScannerActivity : AppCompatActivity() {
 
         val input = EditText(this).apply {
             inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD
-            filters = arrayOf(InputFilter.LengthFilter(ADMIN_PIN_MAX_LENGTH))
+            filters = arrayOf(InputFilter.LengthFilter(AdminPinManager.MAX_PIN_LENGTH))
             isSingleLine = true
             hint = getString(R.string.admin_pin_hint)
         }
@@ -253,12 +277,7 @@ class ScannerActivity : AppCompatActivity() {
             .setTitle(R.string.admin_pin_prompt)
             .setView(container)
             .setPositiveButton(android.R.string.ok) { dialog, _ ->
-                val entered = input.text.toString()
-                if (entered == ADMIN_PIN) {
-                    startActivity(Intent(this, AdminActivity::class.java)) // Corrected: Uses imported AdminActivity
-                } else {
-                    Toast.makeText(this, R.string.admin_pin_error, Toast.LENGTH_SHORT).show()
-                }
+                handleAdminPinEntry(input.text.toString())
                 dialog.dismiss()
             }
             .setNegativeButton(android.R.string.cancel) { dialog, _ -> dialog.dismiss() }
@@ -268,6 +287,63 @@ class ScannerActivity : AppCompatActivity() {
             }
             .setCancelable(false)
             .show()
+    }
+
+    private fun handleAdminPinEntry(entered: String) {
+        if (!adminPinManager.isPinSet()) {
+            Toast.makeText(this, R.string.admin_pin_not_set, Toast.LENGTH_LONG).show()
+            startActivity(Intent(this, AdminActivity::class.java))
+            return
+        }
+
+        when (val result = adminPinManager.verifyPin(entered)) {
+            AdminPinManager.VerificationResult.Success -> {
+                startActivity(Intent(this, AdminActivity::class.java))
+            }
+            is AdminPinManager.VerificationResult.Failure -> {
+                val attempts = result.remainingAttempts
+                if (attempts > 0) {
+                    Toast.makeText(
+                        this,
+                        getString(R.string.admin_pin_attempts_remaining, attempts),
+                        Toast.LENGTH_SHORT
+                    ).show()
+                } else {
+                    Toast.makeText(this, R.string.admin_pin_error, Toast.LENGTH_SHORT).show()
+                }
+            }
+            is AdminPinManager.VerificationResult.Locked -> {
+                val message = getString(
+                    R.string.admin_pin_locked,
+                    formatLockoutDuration(result.remainingMillis)
+                )
+                Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+            }
+            AdminPinManager.VerificationResult.PinNotSet -> {
+                Toast.makeText(this, R.string.admin_pin_not_set, Toast.LENGTH_LONG).show()
+                startActivity(Intent(this, AdminActivity::class.java))
+            }
+        }
+    }
+
+    private fun formatLockoutDuration(remainingMillis: Long): String {
+        val totalSeconds = TimeUnit.MILLISECONDS.toSeconds(remainingMillis.coerceAtLeast(0))
+        val roundedSeconds = if (remainingMillis % 1000L == 0L) totalSeconds else totalSeconds + 1
+        val minutes = (roundedSeconds / 60).toInt()
+        val seconds = (roundedSeconds % 60).toInt()
+        return if (minutes > 0) {
+            if (seconds > 0) {
+                getString(
+                    R.string.duration_minutes_seconds,
+                    resources.getQuantityString(R.plurals.duration_minutes, minutes, minutes),
+                    resources.getQuantityString(R.plurals.duration_seconds, seconds, seconds)
+                )
+            } else {
+                resources.getQuantityString(R.plurals.duration_minutes, minutes, minutes)
+            }
+        } else {
+            resources.getQuantityString(R.plurals.duration_seconds, seconds.coerceAtLeast(1), seconds.coerceAtLeast(1))
+        }
     }
 
     private fun requestCameraPermission() {
@@ -521,7 +597,7 @@ class ScannerActivity : AppCompatActivity() {
                 tsMillis = System.currentTimeMillis()
             )
             verificationDao.insert(entity)
-            Logger.i(TAG, "Stored verification result for subject ${result.subjectDid ?: "N/A"}")
+            Logger.i(TAG, "Stored verification result (success=${result.success})")
             LogManager.appendVerification(applicationContext, result, config, demoPayloadUsed)
         }
     }
@@ -613,28 +689,41 @@ class ScannerActivity : AppCompatActivity() {
             Logger.i(TAG, "Rebuilding network dependencies. Force: $forceRebuild, Current URL: $currentBaseUrl, Target URL: $targetBaseUrl")
             try {
                 val api = RetrofitModule.provideTrustListApi(applicationContext, targetBaseUrl)
-                trustListRepository = TrustListRepository(api) // Create new instance
-                walletVerifier = WalletVerifier(trustListRepository) // Create new instance
+                val repository = TrustListRepository.create(applicationContext, api)
+                trustListRepository = repository
+                walletVerifier = WalletVerifier(repository) // Create new instance
                 currentBaseUrl = targetBaseUrl
                 Logger.i(TAG, "Network dependencies rebuilt for URL: $targetBaseUrl")
             } catch (e: IllegalArgumentException) {
                 Logger.e(TAG, "Invalid trust list URL provided ($targetBaseUrl), falling back to default.", e)
                 Toast.makeText(this, "Invalid API URL, using default.", Toast.LENGTH_LONG).show()
                 val fallbackApi = RetrofitModule.provideTrustListApi(applicationContext, RetrofitModule.DEFAULT_BASE_URL)
-                trustListRepository = TrustListRepository(fallbackApi)
-                walletVerifier = WalletVerifier(trustListRepository)
+                val repository = TrustListRepository.create(applicationContext, fallbackApi)
+                trustListRepository = repository
+                walletVerifier = WalletVerifier(repository)
                 currentBaseUrl = RetrofitModule.DEFAULT_BASE_URL
             }
         }
     }
+
+    private fun enterLockTaskIfPermitted() {
+        if (!currentConfig.demoMode && KioskUtil.isLockTaskPermitted(this)) {
+            try {
+                startLockTask()
+            } catch (e: Exception) {
+                Logger.w(TAG, "Unable to enter lock task mode", e)
+            }
+        }
+    }
+
+    @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
+    internal fun currentBaseUrlForTest(): String? = currentBaseUrl
 
     private enum class ScannerState { SCANNING, VERIFYING, RESULT }
 
     companion object {
         private const val TAG = "ScannerActivity"
         private const val MDL_MIME_TYPE = "application/iso.18013-5+mdoc"
-        private const val ADMIN_PIN = "123456" // Consider making this configurable or more secure
-        private const val ADMIN_PIN_MAX_LENGTH = 8
         private const val ADMIN_HOLD_DURATION_MS = 3000L // Reduced from 5s for easier testing
         private const val DEMO_INTERVAL_MS = 3000L // Interval for demo mode payloads
     }

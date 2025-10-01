@@ -1,6 +1,7 @@
 package com.laurelid
 
 import android.app.Application
+import com.laurelid.kiosk.KioskWatchdogService
 import com.laurelid.util.LogManager
 import com.laurelid.util.Logger
 import kotlinx.coroutines.CoroutineScope
@@ -15,7 +16,9 @@ class LaurelIdApp : Application() {
     override fun onCreate() {
         super.onCreate()
         Logger.i("App", "LaurelID kiosk application initialized")
+        KioskWatchdogService.start(this)
         appScope.launch {
+            LogManager.purgeLegacyLogs(applicationContext)
             LogManager.purgeOldLogs(applicationContext)
         }
     }
@@ -23,6 +26,5 @@ class LaurelIdApp : Application() {
     override fun onTerminate() {
         super.onTerminate()
         appScope.cancel()
-    } // Closing brace for onTerminate method
-
-} // Closing brace for LaurelIdApp class
+    }
+}

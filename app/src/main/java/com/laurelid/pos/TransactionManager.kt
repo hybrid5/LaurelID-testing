@@ -6,16 +6,13 @@ import com.laurelid.util.Logger
 class TransactionManager {
     fun record(result: VerificationResult) {
         // TODO: Integrate with local printer/POS systems once hardware is finalized.
-        Logger.d(TAG, "Recorded verification result for ${result.subjectDid}: success=${result.success}")
+        Logger.d(TAG, "Recorded verification event: success=${result.success}")
     }
 
     fun printResult(result: VerificationResult) {
         // TODO: Replace with ESC/POS commands once printer integration is finalized.
         val status = if (result.success) "VERIFIED" else "REJECTED"
-        Logger.i(
-            TAG,
-            "Printer stub – issuer=${result.issuer}, time=${System.currentTimeMillis()}, status=$status"
-        )
+        Logger.i(TAG, "Printer stub – status=$status at ${System.currentTimeMillis()}")
     }
     
     companion object {

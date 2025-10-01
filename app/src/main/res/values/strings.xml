@@ -24,12 +24,37 @@
     <string name="admin_demo_mode">Enable demo mode</string>
     <string name="admin_save">Save configuration</string>
     <string name="admin_saved">Settings updated</string>
-    <string name="admin_pin_prompt">Enter 6-digit admin PIN</string>
+    <string name="admin_pin_prompt">Enter admin PIN</string>
     <string name="admin_pin_error">Incorrect PIN</string>
+    <string name="admin_pin_not_set">Admin PIN not configured. Please set a PIN.</string>
+    <string name="admin_pin_attempts_remaining">Incorrect PIN. %1$d attempts remaining.</string>
+    <string name="admin_pin_locked">Too many attempts. Try again in %1$s.</string>
+    <string name="admin_pin_section">Admin PIN</string>
+    <string name="admin_pin_status_set">PIN required for admin access.</string>
+    <string name="admin_pin_status_not_set">PIN not configured. Set a new PIN before exiting.</string>
+    <string name="admin_pin_current_hint">Current PIN</string>
+    <string name="admin_pin_new_hint">New PIN</string>
+    <string name="admin_pin_confirm_hint">Confirm new PIN</string>
+    <string name="admin_pin_requirements">PIN must be %1$d–%2$d digits.</string>
+    <string name="admin_pin_mismatch">PINs do not match.</string>
+    <string name="admin_pin_required">Set a new PIN to continue.</string>
+    <string name="admin_pin_updated">PIN updated and settings saved.</string>
 
     <!-- Added missing strings -->
     <string name="admin_pin_hint">Enter PIN</string>
+    <string name="duration_minutes_seconds">%1$s %2$s</string>
+    <plurals name="duration_minutes">
+        <item quantity="one">%d minute</item>
+        <item quantity="other">%d minutes</item>
+    </plurals>
+    <plurals name="duration_seconds">
+        <item quantity="one">%d second</item>
+        <item quantity="other">%d seconds</item>
+    </plurals>
     <string name="camera_permission_title">Camera Permission Needed</string>
     <string name="camera_permission_rationale">This app needs camera access to scan QR codes.</string>
     <string name="result_details_error_unknown">An unknown error occurred during verification.</string>
+    <string name="watchdog_notification_title">Kiosk protection active</string>
+    <string name="watchdog_notification_body">Monitoring scanner uptime</string>
+    <string name="watchdog_notification_channel">Kiosk watchdog</string>
 </resources>

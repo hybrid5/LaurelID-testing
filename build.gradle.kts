@@ -1,4 +1,5 @@
 import io.gitlab.arturbosch.detekt.extensions.DetektExtension
+import java.io.File
 import org.gradle.api.artifacts.VersionCatalogsExtension
 import org.jlleitschuh.gradle.ktlint.KtlintExtension
 
@@ -13,6 +14,33 @@ plugins {
 }
 
 val libs = extensions.getByType<VersionCatalogsExtension>().named("libs")
+
+listOf(
+  "android.builder.sdkDownload" to "true",
+).forEach { (property, value) ->
+  if (System.getProperty(property).isNullOrBlank()) {
+    System.setProperty(property, value)
+  }
+}
+
+val environmentSdk = System.getenv("ANDROID_SDK_ROOT") ?: System.getenv("ANDROID_HOME")
+if (environmentSdk.isNullOrBlank()) {
+  val managedSdkDir = rootDir.resolve(".gradle/android-sdk").absoluteFile
+  val localProperties = rootDir.resolve("local.properties")
+  val sanitizedPath = managedSdkDir.absolutePath.replace("\\", "\\\\")
+  val existingLines = if (localProperties.exists()) localProperties.readLines() else emptyList()
+  val needsUpdate = existingLines.none { it.startsWith("sdk.dir=") && it.contains(sanitizedPath) }
+
+  if (needsUpdate) {
+    managedSdkDir.mkdirs()
+    val retained = existingLines.filter { it.isBlank() || !it.startsWith("sdk.dir=") }
+    val updatedContent = buildString {
+      retained.forEach { appendLine(it) }
+      appendLine("sdk.dir=$sanitizedPath")
+    }
+    localProperties.writeText(updatedContent)
+  }
+}
 
 subprojects {
   pluginManager.apply("org.jlleitschuh.gradle.ktlint")

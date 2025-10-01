@@ -1,20 +1,24 @@
 package com.laurelid.observability
 
 import java.io.File
+import kotlin.io.path.ExperimentalPathApi
+import kotlin.io.path.createTempDirectory
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import org.json.JSONObject
 
+@OptIn(ExperimentalPathApi::class)
 class FileStructuredEventExporterTest {
     private lateinit var tempDir: File
     private lateinit var exporter: FileStructuredEventExporter
 
     @BeforeTest
     fun setUp() {
-        tempDir = createTempDir(prefix = "telemetry")
+        tempDir = createTempDirectory(prefix = "telemetry").toFile()
         exporter = FileStructuredEventExporter { tempDir }
     }
 
@@ -49,5 +53,28 @@ class FileStructuredEventExporterTest {
         assertTrue(parsed.getBoolean("success"))
         assertEquals("OK", parsed.getString("reason_code"))
         assertEquals(false, parsed.getBoolean("trust_stale"))
+    }
+
+    @Test
+    fun `ensureTelemetryDirectory creates missing directory`() {
+        val telemetryDir = File(tempDir, "nested")
+        telemetryDir.deleteRecursively()
+
+        val result = ensureTelemetryDirectory(telemetryDir)
+
+        assertTrue(result)
+        assertTrue(telemetryDir.exists())
+        assertTrue(telemetryDir.isDirectory)
+    }
+
+    @Test
+    fun `ensureTelemetryDirectory fails when target is file`() {
+        val telemetryDir = File(tempDir, "conflict")
+        telemetryDir.writeText("not a directory")
+
+        val result = ensureTelemetryDirectory(telemetryDir)
+
+        assertFalse(result)
+        assertTrue(telemetryDir.isFile)
     }
 }

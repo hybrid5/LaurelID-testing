@@ -8,6 +8,8 @@ import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
 import org.json.JSONObject
 
+private const val TAG = "FileEventExporter"
+
 /**
  * Persists structured telemetry events to a newline-delimited JSON file. Intended for staging builds
  * where developers can retrieve the payload from the app's private storage.
@@ -23,7 +25,7 @@ class FileStructuredEventExporter(
     override fun export(event: StructuredEvent) {
         lock.withLock {
             val directory = directoryProvider.invoke()
-            if (!ensureDirectory(directory)) {
+            if (!ensureTelemetryDirectory(directory)) {
                 return
             }
 
@@ -34,18 +36,6 @@ class FileStructuredEventExporter(
             } catch (ioException: IOException) {
                 Logger.e(TAG, "Unable to append telemetry event", ioException)
             }
-        }
-    }
-
-    private fun ensureDirectory(directory: File): Boolean {
-        if (directory.exists()) {
-            return true
-        }
-        return try {
-            directory.mkdirs()
-        } catch (securityException: SecurityException) {
-            Logger.e(TAG, "Unable to create telemetry directory", securityException)
-            false
         }
     }
 
@@ -63,12 +53,33 @@ class FileStructuredEventExporter(
     companion object {
         internal const val TELEMETRY_DIRECTORY = "telemetry"
         internal const val EVENTS_FILE = "events.log"
-        private const val TAG = "FileEventExporter"
         private const val KEY_EVENT = "event"
         private const val KEY_TIMESTAMP_MS = "timestamp_ms"
         private const val KEY_SCAN_DURATION_MS = "scan_duration_ms"
         private const val KEY_SUCCESS = "success"
         private const val KEY_REASON_CODE = "reason_code"
         private const val KEY_TRUST_STALE = "trust_stale"
+    }
+}
+
+internal fun ensureTelemetryDirectory(directory: File): Boolean {
+    if (directory.exists()) {
+        if (directory.isDirectory) {
+            return true
+        }
+        Logger.e(TAG, "Telemetry path exists but is not a directory: ${directory.absolutePath}")
+        return false
+    }
+
+    return try {
+        if (directory.mkdirs() || directory.isDirectory) {
+            true
+        } else {
+            Logger.e(TAG, "Unable to create telemetry directory: ${directory.absolutePath}")
+            false
+        }
+    } catch (securityException: SecurityException) {
+        Logger.e(TAG, "Unable to create telemetry directory", securityException)
+        false
     }
 }

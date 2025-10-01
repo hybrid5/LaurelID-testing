@@ -34,3 +34,10 @@ See [`DeviceOwnerSetup.md`](DeviceOwnerSetup.md) for the provisioning script and
 - ISO 18013-5 cryptographic verification, revocation checking, and COSE/SD-JWT validation remain TODOs in `ISO18013Parser` and `WalletVerifier`.
 - The bundled trust list logic only checks for issuer presence; production deployments must implement full trust chain validation.
 - The local Gradle distribution path expects `gradle/local-distributions/gradle-8.14.3-bin.zip`; update or replace the archive if you upgrade Gradle.
+
+## Backend Ingestion API
+A minimal FastAPI backend for kiosk telemetry lives under [`backend/`](backend/). It exposes a
+JWT-protected `POST /events` endpoint that stores events, enforces a 30-day anonymization
+policy, and keeps daily aggregate statistics accessible via `GET /stats`. See the backend
+[README](backend/README.md) for setup instructions and `backend/examples/send_event.py` for a
+sample integration script.

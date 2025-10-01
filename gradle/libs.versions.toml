@@ -21,6 +21,9 @@ okhttp = "4.12.0"
 retrofit = "2.11.0"
 room = "2.6.1"
 robolectric = "4.12.1"
+play-integrity = "18.0.1"
+androidx-lifecycle-runtime-ktx = "2.8.6"
+kotlinx-coroutines = "1.8.1"
 
 [libraries]
 androidx-appcompat = { module = "androidx.appcompat:appcompat", version.ref = "androidx-appcompat" }
@@ -54,6 +57,9 @@ room-compiler = { module = "androidx.room:room-compiler", version.ref = "room" }
 room-ktx = { module = "androidx.room:room-ktx", version.ref = "room" }
 room-runtime = { module = "androidx.room:room-runtime", version.ref = "room" }
 robolectric = { module = "org.robolectric:robolectric", version.ref = "robolectric" }
+play-services-integrity = { module = "com.google.android.gms:play-services-integrity", version.ref = "play-integrity" }
+androidx-lifecycle-runtime-ktx = { module = "androidx.lifecycle:lifecycle-runtime-ktx", version.ref = "androidx-lifecycle-runtime-ktx" }
+kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "kotlinx-coroutines" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

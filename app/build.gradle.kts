@@ -17,6 +17,7 @@ android {
     versionCode = 1
     versionName = "1.0"
     testInstrumentationRunner = "com.google.dagger.hilt.android.testing.HiltTestRunner"
+    buildConfigField("long", "PLAY_INTEGRITY_PROJECT_NUMBER", "0L")
   }
 
   flavorDimensions += "environment"
@@ -128,9 +129,11 @@ dependencies {
   implementation(libs.okhttp)
   implementation(libs.okhttp.logging)
   implementation(libs.androidx.security.crypto)
+  implementation(libs.androidx.lifecycle.runtime.ktx)
   implementation(libs.cbor)
   implementation(libs.hilt.android)
   kapt(libs.hilt.compiler)
+  implementation(libs.play.services.integrity)
 
   testImplementation(kotlin("test"))
   testImplementation(libs.cose)
@@ -138,6 +141,7 @@ dependencies {
   testImplementation(libs.bouncycastle.bcpkix)
   testImplementation(libs.androidx.test.core)
   testImplementation(libs.robolectric)
+  testImplementation(libs.kotlinx.coroutines.test)
   androidTestImplementation(libs.androidx.test.ext.junit)
   androidTestImplementation(libs.androidx.test.runner)
   androidTestImplementation(libs.androidx.test.core)

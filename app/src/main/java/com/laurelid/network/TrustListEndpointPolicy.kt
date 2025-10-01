@@ -11,12 +11,26 @@ object TrustListEndpointPolicy {
         get() = BuildConfig.ALLOW_TRUST_LIST_OVERRIDE
 
     private val defaultHost: String by lazy { defaultBaseUrl.toHttpUrl().host }
-    private val certificatePins: List<String> by lazy {
+    private val certificatePinRotations: List<PinRotation> by lazy {
         BuildConfig.TRUST_LIST_CERT_PINS
             .split(',')
-            .map { it.trim() }
-            .filter { it.isNotEmpty() }
+            .mapNotNull { raw ->
+                val trimmed = raw.trim()
+                if (trimmed.isEmpty()) {
+                    return@mapNotNull null
+                }
+                val parts = trimmed.split('@', limit = 2)
+                val pin = parts[0].trim()
+                if (pin.isEmpty()) {
+                    return@mapNotNull null
+                }
+                val expiresAtMillis = parts.getOrNull(1)?.toLongOrNull()
+                PinRotation(pin, expiresAtMillis)
+            }
     }
+
+    private val pinExpiryGraceMillis: Long
+        get() = BuildConfig.TRUST_LIST_PIN_EXPIRY_GRACE_MILLIS
 
     fun resolveBaseUrl(config: AdminConfig?): String {
         val override = config?.apiEndpointOverride
@@ -32,11 +46,25 @@ object TrustListEndpointPolicy {
         return normalized
     }
 
-    fun certificatePinsFor(baseUrl: String): List<Pair<String, String>> {
+    fun certificatePinsFor(baseUrl: String, nowMillis: Long = System.currentTimeMillis()): List<Pair<String, String>> {
         val normalized = normalize(baseUrl)
         val host = normalized.toHttpUrl().host
         return if (host == defaultHost) {
-            certificatePins.map { pin -> host to pin }
+            val cutoff = if (pinExpiryGraceMillis > 0L) {
+                nowMillis - pinExpiryGraceMillis
+            } else {
+                Long.MIN_VALUE
+            }
+            certificatePinRotations
+                .filter { rotation ->
+                    val expiresAt = rotation.expiresAtMillis
+                    when {
+                        expiresAt == null -> true
+                        pinExpiryGraceMillis <= 0L -> nowMillis <= expiresAt
+                        else -> cutoff <= expiresAt
+                    }
+                }
+                .map { rotation -> host to rotation.pin }
         } else {
             emptyList()
         }
@@ -68,4 +96,9 @@ object TrustListEndpointPolicy {
         }
         return httpUrl.newBuilder().build().toString()
     }
+
+    private data class PinRotation(
+        val pin: String,
+        val expiresAtMillis: Long?,
+    )
 }

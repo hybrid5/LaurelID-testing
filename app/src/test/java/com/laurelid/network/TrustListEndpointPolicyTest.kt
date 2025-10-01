@@ -1,5 +1,6 @@
 package com.laurelid.network
 
+import com.laurelid.BuildConfig
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -39,6 +40,30 @@ class TrustListEndpointPolicyTest {
             assertTrue(host.isNotBlank())
             assertTrue(pin.startsWith("sha256/"))
         }
+    }
+
+    @Test
+    fun `certificate pin rotation honours expiry grace`() {
+        val baseUrl = TrustListEndpointPolicy.defaultBaseUrl
+        val secondaryPin = "sha256/Sq9GtEtHd5FcNhLBA7ZnWD9E/RE0KhwvhJ8apGLI1qI"
+        val beforeExpiry = TrustListEndpointPolicy.certificatePinsFor(
+            baseUrl,
+            nowMillis = 1748736000000L - 1L,
+        )
+        assertTrue(beforeExpiry.size >= 2)
+
+        val afterFirstGrace = TrustListEndpointPolicy.certificatePinsFor(
+            baseUrl,
+            nowMillis = 1748736000000L + BuildConfig.TRUST_LIST_PIN_EXPIRY_GRACE_MILLIS + 1L,
+        )
+        assertTrue(afterFirstGrace.size >= 1)
+        assertTrue(afterFirstGrace.all { it.second == secondaryPin })
+
+        val afterAllExpired = TrustListEndpointPolicy.certificatePinsFor(
+            baseUrl,
+            nowMillis = 1780272000000L + BuildConfig.TRUST_LIST_PIN_EXPIRY_GRACE_MILLIS + 1L,
+        )
+        assertTrue(afterAllExpired.isEmpty())
     }
 
     @Test

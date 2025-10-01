@@ -6,6 +6,8 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertFailsWith
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
 
@@ -45,7 +47,12 @@ class TrustListRepositoryTest {
     fun `falls back to stale cache when refresh fails`() = runBlocking {
         withTempDir { dir ->
             val api = RecordingTrustListApi(mapOf("AZ" to "cert"))
-            val repository = TrustListRepository(api, dir, defaultMaxAgeMillis = 1_000L)
+            val repository = TrustListRepository(
+                api,
+                dir,
+                defaultMaxAgeMillis = 1_000L,
+                defaultStaleTtlMillis = 5_000L,
+            )
 
             repository.getOrRefresh(nowMillis = 0L)
             api.shouldFail = true
@@ -55,6 +62,48 @@ class TrustListRepositoryTest {
             assertEquals(mapOf("AZ" to "cert"), snapshot.entries)
             assertTrue(snapshot.stale)
             assertEquals(2, api.callCount)
+        }
+    }
+
+    @Test
+    fun `throws when cache older than stale ttl`() = runBlocking {
+        withTempDir { dir ->
+            val api = RecordingTrustListApi(mapOf("AZ" to "cert"))
+            val repository = TrustListRepository(
+                api,
+                dir,
+                defaultMaxAgeMillis = 1_000L,
+                defaultStaleTtlMillis = 2_000L,
+            )
+
+            repository.getOrRefresh(nowMillis = 0L)
+            api.shouldFail = true
+
+            assertFailsWith<IOException> {
+                repository.getOrRefresh(nowMillis = 5_000L, maxAgeMillis = 1_000L)
+            }
+        }
+    }
+
+    @Test
+    fun `cached snapshot evicted beyond stale ttl`() = runBlocking {
+        withTempDir { dir ->
+            val api = RecordingTrustListApi(mapOf("AZ" to "cert"))
+            val repository = TrustListRepository(
+                api,
+                dir,
+                defaultMaxAgeMillis = 1_000L,
+                defaultStaleTtlMillis = 2_000L,
+            )
+
+            repository.getOrRefresh(nowMillis = 0L)
+
+            val present = repository.cached(nowMillis = 1_500L)
+            assertNotNull(present)
+            assertTrue(present.stale)
+
+            val evicted = repository.cached(nowMillis = 4_000L)
+            assertNull(evicted)
         }
     }
 

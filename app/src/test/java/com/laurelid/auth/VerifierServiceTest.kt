@@ -51,7 +51,11 @@ class VerifierServiceTest {
         )
         TestCredentialFixtures.withTempDir { dir ->
             val repository = object : TrustListRepository(MapBackedTrustListApi(emptyMap()), dir) {
-                override suspend fun getOrRefresh(nowMillis: Long, maxAgeMillis: Long): Snapshot {
+                override suspend fun getOrRefresh(
+                    nowMillis: Long,
+                    maxAgeMillis: Long,
+                    staleTtlMillis: Long,
+                ): Snapshot {
                     return Snapshot(emptyMap(), stale = false)
                 }
             }
@@ -73,7 +77,11 @@ class VerifierServiceTest {
         TestCredentialFixtures.withTempDir { dir ->
             val entries = mapOf(scenario.issuer to scenario.certificateBase64)
             val repository = object : TrustListRepository(MapBackedTrustListApi(entries), dir) {
-                override suspend fun getOrRefresh(nowMillis: Long, maxAgeMillis: Long): Snapshot {
+                override suspend fun getOrRefresh(
+                    nowMillis: Long,
+                    maxAgeMillis: Long,
+                    staleTtlMillis: Long,
+                ): Snapshot {
                     return Snapshot(entries, stale = true)
                 }
             }

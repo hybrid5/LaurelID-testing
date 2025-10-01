@@ -1,6 +1,7 @@
 package com.laurelid.network
 
 import android.content.Context
+import com.laurelid.BuildConfig
 import com.laurelid.util.Logger
 import java.io.File
 import java.util.concurrent.TimeUnit
@@ -16,6 +17,7 @@ open class TrustListRepository(
     api: TrustListApi,
     private val cacheDir: File,
     private val defaultMaxAgeMillis: Long = DEFAULT_MAX_AGE_MILLIS,
+    private val defaultStaleTtlMillis: Long = DEFAULT_STALE_TTL_MILLIS,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     initialBaseUrl: String? = null,
 ) {
@@ -48,9 +50,14 @@ open class TrustListRepository(
         }
     }
 
-    open suspend fun getOrRefresh(nowMillis: Long): Snapshot = getOrRefresh(nowMillis, defaultMaxAgeMillis)
+    open suspend fun getOrRefresh(nowMillis: Long): Snapshot =
+        getOrRefresh(nowMillis, defaultMaxAgeMillis, defaultStaleTtlMillis)
 
-    open suspend fun getOrRefresh(nowMillis: Long, maxAgeMillis: Long): Snapshot = mutex.withLock {
+    open suspend fun getOrRefresh(
+        nowMillis: Long,
+        maxAgeMillis: Long,
+        staleTtlMillis: Long = defaultStaleTtlMillis,
+    ): Snapshot = mutex.withLock {
         val current = ensureCacheLoaded()
         val hasCache = current != null
         val isFresh = when {
@@ -75,11 +82,22 @@ open class TrustListRepository(
         } catch (throwable: Throwable) {
             Logger.e(TAG, "Failed to refresh trust list, falling back to cache", throwable)
             if (current != null) {
-                val stale = if (maxAgeMillis <= 0L) {
-                    true
-                } else {
-                    nowMillis - current.fetchedAtMillis > maxAgeMillis
+                val age = nowMillis - current.fetchedAtMillis
+                val staleThreshold = if (maxAgeMillis <= 0L) 0L else maxAgeMillis
+                val effectiveTtl = staleTtlMillis.coerceAtLeast(0L)
+                val allowStale = when {
+                    effectiveTtl <= 0L && age > staleThreshold -> false
+                    staleThreshold <= 0L -> age <= effectiveTtl || effectiveTtl == 0L
+                    effectiveTtl == 0L -> age <= staleThreshold
+                    else -> age <= staleThreshold + effectiveTtl
                 }
+
+                if (!allowStale) {
+                    Logger.e(TAG, "Cached trust list expired beyond stale TTL; failing closed")
+                    throw throwable
+                }
+
+                val stale = staleThreshold <= 0L || age > staleThreshold
                 Logger.w(TAG, "Serving cached trust list (stale=$stale)")
                 Snapshot(current.entries, stale = stale)
             } else {
@@ -88,13 +106,26 @@ open class TrustListRepository(
         }
     }
 
-    open fun cached(): Snapshot? {
+    open fun cached(nowMillis: Long = System.currentTimeMillis()): Snapshot? {
         val state = memoryCache ?: return null
-        val stale = if (defaultMaxAgeMillis <= 0L) {
-            true
-        } else {
-            System.currentTimeMillis() - state.fetchedAtMillis > defaultMaxAgeMillis
+        val age = nowMillis - state.fetchedAtMillis
+        val staleThreshold = if (defaultMaxAgeMillis <= 0L) 0L else defaultMaxAgeMillis
+        val effectiveTtl = defaultStaleTtlMillis.coerceAtLeast(0L)
+
+        val beyondTtl = when {
+            staleThreshold <= 0L && effectiveTtl <= 0L -> age > 0L
+            staleThreshold <= 0L -> age > effectiveTtl
+            effectiveTtl <= 0L -> age > staleThreshold
+            else -> age > staleThreshold + effectiveTtl
         }
+
+        if (beyondTtl) {
+            Logger.w(TAG, "Discarding cached trust list beyond stale TTL")
+            memoryCache = null
+            return null
+        }
+
+        val stale = staleThreshold <= 0L || age > staleThreshold
         return Snapshot(state.entries, stale)
     }
 
@@ -187,17 +218,25 @@ open class TrustListRepository(
         private const val KEY_FETCHED_AT = "fetchedAt"
         private const val KEY_ENTRIES = "entries"
         private val DEFAULT_MAX_AGE_MILLIS = TimeUnit.HOURS.toMillis(12)
+        private val DEFAULT_STALE_TTL_MILLIS = TimeUnit.DAYS.toMillis(3)
 
         fun create(
             context: Context,
             api: TrustListApi,
-            defaultMaxAgeMillis: Long = DEFAULT_MAX_AGE_MILLIS,
+            defaultMaxAgeMillis: Long = BuildConfig.TRUST_LIST_CACHE_MAX_AGE_MILLIS,
             ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
             baseUrl: String = TrustListEndpointPolicy.defaultBaseUrl,
         ): TrustListRepository {
             val directory = File(context.filesDir, CACHE_DIRECTORY)
             val sanitizedBaseUrl = TrustListEndpointPolicy.requireEndpointAllowed(baseUrl)
-            return TrustListRepository(api, directory, defaultMaxAgeMillis, ioDispatcher, sanitizedBaseUrl)
+            return TrustListRepository(
+                api = api,
+                cacheDir = directory,
+                defaultMaxAgeMillis = defaultMaxAgeMillis,
+                defaultStaleTtlMillis = BuildConfig.TRUST_LIST_CACHE_STALE_TTL_MILLIS,
+                ioDispatcher = ioDispatcher,
+                initialBaseUrl = sanitizedBaseUrl,
+            )
         }
     }
 }

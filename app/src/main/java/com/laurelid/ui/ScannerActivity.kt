@@ -601,14 +601,24 @@ class ScannerActivity : AppCompatActivity() {
 
     private suspend fun persistResult(result: VerificationResult, config: AdminConfig, demoPayloadUsed: Boolean) {
         withContext(Dispatchers.IO) {
+            val previous = verificationDao.mostRecent()
+            val successCount = (previous?.totalSuccessCount ?: 0) + if (result.success) 1 else 0
+            val failureCount = (previous?.totalFailureCount ?: 0) + if (result.success) 0 else 1
+            val over21Count = (previous?.totalAgeOver21Count ?: 0) + if (result.ageOver21 == true) 1 else 0
+            val under21Count = (previous?.totalAgeUnder21Count ?: 0) + if (result.ageOver21 == false) 1 else 0
+            val demoCount = (previous?.totalDemoModeCount ?: 0) + if (demoPayloadUsed) 1 else 0
+
             val entity = VerificationEntity(
                 success = result.success,
-                subjectDid = result.subjectDid ?: "Unknown",
-                docType = result.docType ?: "Unknown",
-                ageOver21 = result.ageOver21 ?: false,
-                issuer = result.issuer ?: "Unknown",
+                ageOver21 = result.ageOver21 == true,
+                demoMode = demoPayloadUsed,
                 error = result.error,
-                tsMillis = System.currentTimeMillis()
+                tsMillis = System.currentTimeMillis(),
+                totalSuccessCount = successCount,
+                totalFailureCount = failureCount,
+                totalAgeOver21Count = over21Count,
+                totalAgeUnder21Count = under21Count,
+                totalDemoModeCount = demoCount,
             )
             verificationDao.insert(entity)
             Logger.i(TAG, "Stored verification result (success=${result.success})")

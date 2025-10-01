@@ -1,11 +1,15 @@
 package com.laurelid.util
 
 import android.content.Context
+import androidx.annotation.VisibleForTesting
+import androidx.security.crypto.EncryptedFile
+import androidx.security.crypto.MasterKey
 import com.laurelid.config.AdminConfig
 import com.laurelid.data.VerificationResult
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import java.io.IOException
+import java.security.GeneralSecurityException
 import java.time.Clock
 import java.util.concurrent.TimeUnit
 import javax.inject.Singleton
@@ -16,11 +20,13 @@ open class LogManager constructor(
     @ApplicationContext private val context: Context,
     private val clock: Clock,
 ) {
-    private const val LOG_DIR = "logs"
-    private const val LOG_FILE = "verify.log"
-    private const val MIGRATION_PREFS = "log_migrations"
-    private const val KEY_LEGACY_PURGED = "legacy_logs_purged"
-    private val TIMESTAMP_REGEX = Regex("\"ts\":(\\d+)")
+    private val masterKey by lazy {
+        MasterKey.Builder(context)
+            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+            .build()
+    }
+
+    protected open val maxLogBytes: Long = 64 * 1024L
 
     open fun purgeLegacyLogs() {
         val prefs = context.getSharedPreferences(MIGRATION_PREFS, Context.MODE_PRIVATE)
@@ -39,10 +45,13 @@ open class LogManager constructor(
     open fun appendVerification(result: VerificationResult, config: AdminConfig, demoModeUsed: Boolean) {
         try {
             val dir = File(context.filesDir, LOG_DIR)
-            if (!dir.exists()) {
-                dir.mkdirs()
+            if (!dir.exists() && !dir.mkdirs()) {
+                Logger.w(TAG, "Unable to create log directory")
+                return
             }
             val file = File(dir, LOG_FILE)
+            rotateIfNeeded(file)
+
             val payload = JSONObject().apply {
                 put("ts", clock.millis())
                 put("venueId", config.venueId)
@@ -51,21 +60,25 @@ open class LogManager constructor(
                 put("error", result.error)
                 put("demoMode", demoModeUsed)
             }.toString()
-            file.appendText("$payload\n")
+
+            val lines = readEncryptedLines(file).toMutableList()
+            lines.add(payload)
+            writeEncryptedLines(file, lines)
         } catch (ioException: IOException) {
             Logger.e(TAG, "Unable to append verification log", ioException)
+        } catch (securityException: GeneralSecurityException) {
+            Logger.e(TAG, "Unable to encrypt verification log", securityException)
         }
     }
 
     open fun purgeOldLogs() {
-        val logFile = File(File(context.filesDir, LOG_DIR), LOG_FILE)
+        val dir = File(context.filesDir, LOG_DIR)
+        val logFile = File(dir, LOG_FILE)
         if (!logFile.exists()) return
-        val lines = try {
-            logFile.readLines()
-        } catch (ioException: IOException) {
-            Logger.e(TAG, "Unable to read verification logs for retention", ioException)
-            return
-        }
+
+        val lines = readEncryptedLines(logFile)
+        if (lines.isEmpty()) return
+
         val cutoff = clock.millis() - TimeUnit.DAYS.toMillis(30)
         val filtered = lines.filter { line ->
             val timestamp = TIMESTAMP_REGEX.find(line)?.groupValues?.getOrNull(1)?.toLongOrNull()
@@ -76,15 +89,73 @@ open class LogManager constructor(
         }
         try {
             if (filtered.isEmpty()) {
-                logFile.delete()
+                if (!logFile.delete()) {
+                    Logger.w(TAG, "Unable to delete expired verification log file")
+                }
             } else {
-                logFile.writeText(filtered.joinToString(separator = "\n", postfix = "\n"))
+                writeEncryptedLines(logFile, filtered)
             }
             Logger.i(TAG, "Purged verification logs older than 30 days")
         } catch (ioException: IOException) {
             Logger.e(TAG, "Unable to rewrite verification logs", ioException)
+        } catch (securityException: GeneralSecurityException) {
+            Logger.e(TAG, "Unable to encrypt verification logs during purge", securityException)
         }
     }
 
-    private const val TAG = "LogManager"
+    @VisibleForTesting
+    internal open fun readEncryptedLines(file: File): List<String> {
+        if (!file.exists()) return emptyList()
+        return try {
+            createEncryptedFile(file).openFileInput().bufferedReader().use { reader ->
+                reader.readLines().filter { it.isNotBlank() }
+            }
+        } catch (ioException: IOException) {
+            Logger.e(TAG, "Unable to read encrypted verification logs", ioException)
+            emptyList()
+        } catch (securityException: GeneralSecurityException) {
+            Logger.e(TAG, "Unable to decrypt verification logs", securityException)
+            emptyList()
+        }
+    }
+
+    private fun writeEncryptedLines(file: File, lines: List<String>) {
+        val encryptedFile = createEncryptedFile(file)
+        encryptedFile.openFileOutput().use { outputStream ->
+            val content = if (lines.isEmpty()) "" else lines.joinToString(separator = "\n", postfix = "\n")
+            outputStream.write(content.toByteArray(Charsets.UTF_8))
+        }
+    }
+
+    private fun createEncryptedFile(file: File): EncryptedFile {
+        return EncryptedFile.Builder(
+            context,
+            file,
+            masterKey,
+            EncryptedFile.FileEncryptionScheme.AES256_GCM_HKDF_4KB,
+        ).build()
+    }
+
+    private fun rotateIfNeeded(file: File) {
+        if (!file.exists()) return
+        if (file.length() < maxLogBytes) return
+
+        val backup = File(file.parentFile, LOG_FILE_BACKUP)
+        if (backup.exists() && !backup.delete()) {
+            Logger.w(TAG, "Unable to delete existing rotated log file")
+        }
+        if (!file.renameTo(backup)) {
+            Logger.w(TAG, "Unable to rotate verification log")
+        }
+    }
+
+    private companion object {
+        private const val LOG_DIR = "logs"
+        private const val LOG_FILE = "verify.log"
+        private const val LOG_FILE_BACKUP = "verify.log.1"
+        private const val MIGRATION_PREFS = "log_migrations"
+        private const val KEY_LEGACY_PURGED = "legacy_logs_purged"
+        private val TIMESTAMP_REGEX = Regex("\"ts\":(\\d+)")
+        private const val TAG = "LogManager"
+    }
 }

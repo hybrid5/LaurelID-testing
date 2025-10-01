@@ -7,10 +7,13 @@ import androidx.room.PrimaryKey
 data class VerificationEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val success: Boolean,
-    val subjectDid: String,
-    val docType: String,
     val ageOver21: Boolean,
-    val issuer: String,
+    val demoMode: Boolean,
     val error: String?,
-    val tsMillis: Long
+    val tsMillis: Long,
+    val totalSuccessCount: Long,
+    val totalFailureCount: Long,
+    val totalAgeOver21Count: Long,
+    val totalAgeUnder21Count: Long,
+    val totalDemoModeCount: Long,
 )

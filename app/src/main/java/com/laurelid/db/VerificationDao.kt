@@ -12,4 +12,7 @@ interface VerificationDao {
 
     @Query("SELECT * FROM verification_log ORDER BY tsMillis DESC LIMIT :limit")
     suspend fun latest(limit: Int = 10): List<VerificationEntity>
+
+    @Query("SELECT * FROM verification_log ORDER BY tsMillis DESC LIMIT 1")
+    suspend fun mostRecent(): VerificationEntity?
 }

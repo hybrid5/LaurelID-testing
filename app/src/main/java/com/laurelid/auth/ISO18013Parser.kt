@@ -1,53 +1,40 @@
 package com.laurelid.auth
 
+import com.laurelid.auth.deviceengagement.DeviceEngagementParser
+import com.laurelid.auth.deviceengagement.DeviceEngagementTransportFactory
+import com.laurelid.auth.deviceengagement.TransportFactory
 import com.laurelid.util.Logger
-import java.util.UUID
-import kotlin.math.absoluteValue
 
 /**
  * Lightweight placeholder parser for ISO 18013-5 mobile driving licences.
  * The real implementation must perform the full mdoc engagement, device retrieval,
  * COSE/SD-JWT validation, and data element verification as defined by the spec.
  */
-class ISO18013Parser {
+class ISO18013Parser(
+    private val engagementParser: DeviceEngagementParser = DeviceEngagementParser(),
+    private val transportFactory: TransportFactory = DeviceEngagementTransportFactory(),
+    private val deviceResponseParser: DeviceResponseParser = DeviceResponseParser(
+        defaultDocType = DEFAULT_DOC_TYPE,
+        defaultIssuer = DEFAULT_ISSUER
+    )
+) {
 
     fun parseFromQrPayload(payload: String): ParsedMdoc {
         Logger.d(TAG, "Parsing QR payload: ${payload.take(64)}")
-        // TODO: Replace placeholder parsing with ISO 18013-5 engagement handoff.
-        val ageOver21 = payload.contains("age21=1", ignoreCase = true)
-        val issuer = findValue(payload, "issuer") ?: DEFAULT_ISSUER
-        val subject = findValue(payload, "subject") ?: createSubjectFromPayload(payload)
-        return ParsedMdoc(
-            subjectDid = subject,
-            docType = DEFAULT_DOC_TYPE,
-            issuer = issuer,
-            ageOver21 = ageOver21
-        )
+        val engagement = engagementParser.parse(payload)
+        val transport = transportFactory.create(engagement)
+        transport.start()
+        return try {
+            val sessionBytes = transport.receive()
+            deviceResponseParser.parse(sessionBytes)
+        } finally {
+            transport.stop()
+        }
     }
 
     fun parseFromNfc(bytes: ByteArray): ParsedMdoc {
-        val payload = bytes.toString(Charsets.UTF_8)
-        Logger.d(TAG, "Parsing NFC payload: ${payload.take(64)}")
-        // TODO: Replace placeholder NFC parsing with full device engagement + session transcript decode.
-        val ageOver21 = payload.contains("age21=1", ignoreCase = true)
-        val issuer = findValue(payload, "issuer") ?: DEFAULT_ISSUER
-        val subject = findValue(payload, "subject") ?: createSubjectFromPayload(payload)
-        return ParsedMdoc(
-            subjectDid = subject,
-            docType = DEFAULT_DOC_TYPE,
-            issuer = issuer,
-            ageOver21 = ageOver21
-        )
-    }
-
-    private fun findValue(payload: String, key: String): String? {
-        val regex = Regex("(?i)$key=([^&;]+)")
-        return regex.find(payload)?.groupValues?.getOrNull(1)
-    }
-
-    private fun createSubjectFromPayload(payload: String): String {
-        val hash = payload.hashCode().absoluteValue
-        return "did:example:${UUID.nameUUIDFromBytes("$hash".toByteArray()).toString()}"
+        Logger.d(TAG, "Parsing NFC payload: ${bytes.toString(Charsets.UTF_8).take(64)}")
+        return deviceResponseParser.parse(bytes)
     }
 
     companion object {

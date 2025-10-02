@@ -1,6 +1,7 @@
 package com.laurelid.observability
 
 import android.content.Context
+import com.laurelid.BuildConfig
 import com.laurelid.util.Logger
 import java.io.File
 import java.io.IOException
@@ -14,13 +15,20 @@ import org.json.JSONObject
  */
 class FileStructuredEventExporter(
     private val directoryProvider: () -> File,
+    private val isDebugBuild: () -> Boolean = { BuildConfig.DEBUG },
 ) : IEventExporter {
 
-    constructor(context: Context) : this({ File(context.filesDir, TELEMETRY_DIRECTORY) })
+    constructor(context: Context) : this(
+        directoryProvider = { File(context.filesDir, TELEMETRY_DIRECTORY) },
+    )
 
     private val lock = ReentrantLock()
 
     override fun export(event: StructuredEvent) {
+        if (!isDebugBuild.invoke()) {
+            Logger.w(TAG, "Skipping telemetry export: plaintext exporter disabled for non-debug builds")
+            return
+        }
         lock.withLock {
             val directory = directoryProvider.invoke()
             if (!ensureDirectory(directory)) {

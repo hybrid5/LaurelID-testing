@@ -13,6 +13,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import org.json.JSONObject
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 
@@ -44,7 +45,11 @@ class LogManagerTest {
 
         val decrypted = logManager.readEncryptedLines(file)
         assertEquals(1, decrypted.size)
-        assertTrue(decrypted.first().contains("\"venueId\":\"venue-123\""))
+        val parsed = JSONObject(decrypted.first())
+        assertEquals("REDACTED", parsed.getString("venueId"))
+        assertTrue(parsed.isNull("success"))
+        assertTrue(parsed.isNull("ageOver21"))
+        assertTrue(parsed.isNull("demoMode"))
     }
 
     @Test

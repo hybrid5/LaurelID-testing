@@ -54,11 +54,11 @@ open class LogManager constructor(
 
             val payload = JSONObject().apply {
                 put("ts", clock.millis())
-                put("venueId", config.venueId)
-                put("success", result.success)
-                put("ageOver21", result.ageOver21 == true)
+                put("venueId", REDACTED_VENUE_ID)
+                put("success", JSONObject.NULL)
+                put("ageOver21", JSONObject.NULL)
                 put("error", result.error)
-                put("demoMode", demoModeUsed)
+                put("demoMode", JSONObject.NULL)
             }.toString()
 
             val lines = readEncryptedLines(file).toMutableList()
@@ -157,5 +157,6 @@ open class LogManager constructor(
         private const val KEY_LEGACY_PURGED = "legacy_logs_purged"
         private val TIMESTAMP_REGEX = Regex("\"ts\":(\\d+)")
         private const val TAG = "LogManager"
+        private const val REDACTED_VENUE_ID = "REDACTED"
     }
 }

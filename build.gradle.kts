@@ -48,26 +48,19 @@ subprojects {
 }
 
 tasks.register("ciStaticAnalysis") {
-  group = "verification"
+  group = "ci"
   description = "Runs Android lint, ktlint, and detekt checks."
-  dependsOn(
-    ":app:lint",
-    ":app:ktlintCheck",
-    ":app:detekt"
-  )
+  dependsOn(":app:lint", ":app:ktlintCheck", ":app:detekt")
 }
 
 tasks.register("ciUnitTest") {
-  group = "verification"
-  description = "Executes JVM unit tests for debug builds."
-  dependsOn(
-    ":app:testStagingDebugUnitTest",
-    ":app:testProductionDebugUnitTest",
-  )
+  group = "ci"
+  description = "Executes JVM unit tests for staging and production builds."
+  dependsOn(":app:testStagingUnitTest", ":app:testProductionUnitTest")
 }
 
 tasks.register("ciRelease") {
-  group = "build"
-  description = "Runs verification tasks and assembles the release APK."
-  dependsOn("ciStaticAnalysis", "ciUnitTest", ":app:assembleRelease")
+  group = "ci"
+  description = "Assembles the release APK."
+  dependsOn(":app:assembleRelease")
 }

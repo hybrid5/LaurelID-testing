@@ -20,6 +20,7 @@ object StructuredEventLogger {
         success: Boolean? = null,
         reasonCode: String? = null,
         trustStale: Boolean? = null,
+        redactStringPayloads: Boolean = true,
     ) {
         val structuredEvent = StructuredEvent(
             event = event,
@@ -28,6 +29,7 @@ object StructuredEventLogger {
             success = success,
             reasonCode = reasonCode,
             trustStale = trustStale,
+            redactStringPayloads = redactStringPayloads,
         )
         exporterRef.get().export(structuredEvent)
     }

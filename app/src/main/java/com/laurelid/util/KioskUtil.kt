@@ -15,6 +15,8 @@ import androidx.core.view.WindowInsetsControllerCompat
 
 object KioskUtil {
 
+    private const val TAG = "KioskUtil"
+
     fun applyKioskDecor(window: Window) {
         keepScreenOn(window)
         setImmersiveMode(window)
@@ -77,10 +79,31 @@ object KioskUtil {
         return try {
             dpm.isLockTaskPermitted(packageName)
         } catch (e: SecurityException) {
-            Logger.e("KioskUtil", "SecurityException checking lock task permission", e)
+            Logger.e(TAG, "SecurityException checking lock task permission", e)
             false
         } catch (e: Exception) {
-            Logger.e("KioskUtil", "Exception checking lock task permission", e)
+            Logger.e(TAG, "Exception checking lock task permission", e)
+            false
+        }
+    }
+
+    fun startLockTaskIfPermitted(
+        activity: ComponentActivity,
+        lockTaskPermitted: Boolean? = null,
+    ): Boolean {
+        val permitted = lockTaskPermitted ?: isLockTaskPermitted(activity)
+        if (!permitted) {
+            Logger.i(TAG, "Lock task not permitted for package ${activity.packageName}")
+            return false
+        }
+        return try {
+            activity.startLockTask()
+            true
+        } catch (e: SecurityException) {
+            Logger.w(TAG, "Lock task not permitted by system", e)
+            false
+        } catch (e: IllegalStateException) {
+            Logger.w(TAG, "Unable to enter lock task mode", e)
             false
         }
     }

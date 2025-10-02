@@ -2,6 +2,7 @@ package com.laurelid.util
 
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
+import com.laurelid.auth.VerifierService
 import com.laurelid.config.AdminConfig
 import com.laurelid.data.VerificationResult
 import java.io.File
@@ -12,6 +13,7 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 import org.json.JSONObject
 import org.junit.runner.RunWith
@@ -78,6 +80,31 @@ class LogManagerTest {
         assertEquals(1, activeDecrypted.size)
         assertEquals(1, rotatedDecrypted.size)
         assertFalse(rotated.readBytes().toString(Charsets.ISO_8859_1).contains("did:example"))
+    }
+
+    @Test
+    fun hashesErrorsBeforeLogging() {
+        val logManager = object : LogManager(context, clock) {
+            override val maxLogBytes: Long = Long.MAX_VALUE
+        }
+        logManager.purgeLegacyLogs()
+
+        val errorReason = VerifierService.ERROR_INVALID_SIGNATURE
+        val result = buildResult().copy(
+            success = false,
+            error = errorReason,
+        )
+
+        logManager.appendVerification(result, buildConfig(), demoModeUsed = false)
+
+        val file = File(File(context.filesDir, "logs"), "verify.log")
+        val decrypted = logManager.readEncryptedLines(file)
+        assertEquals(1, decrypted.size)
+        val parsed = JSONObject(decrypted.first())
+        val storedError = parsed.getString("error")
+        val expectedHash = logManager.hashError(errorReason)
+        assertEquals(expectedHash, storedError)
+        assertNotEquals(errorReason, storedError)
     }
 
     private fun buildResult(subject: String? = "did:example:alice") = VerificationResult(

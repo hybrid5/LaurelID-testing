@@ -688,6 +688,7 @@ open class VerifierService constructor(
         const val ERROR_INVALID_DEVICE_SIGNATURE = "INVALID_DEVICE_SIGNATURE"
         const val ERROR_DEVICE_DATA_MISMATCH = "DEVICE_DATA_MISMATCH"
         const val ERROR_CLIENT_EXCEPTION = "CLIENT_EXCEPTION"
+        const val ERROR_DEVICE_INTEGRITY = "DEVICE_INTEGRITY_FAILED"
 
         internal fun sanitizeReasonCode(reason: String?): String? {
             if (reason.isNullOrBlank()) return null

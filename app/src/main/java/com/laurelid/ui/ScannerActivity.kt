@@ -2,8 +2,6 @@ package com.laurelid.ui
 
 import android.Manifest
 import android.app.PendingIntent
-// import android.app.admin.DevicePolicyManager // Not directly used in current fixes
-// import android.content.ComponentName // Not directly used
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
@@ -779,12 +777,20 @@ class ScannerActivity : AppCompatActivity() {
     }
 
     private fun enterLockTaskIfPermitted() {
-        if (!currentConfig.demoMode && KioskUtil.isLockTaskPermitted(this)) {
-            try {
-                startLockTask()
-            } catch (e: Exception) {
-                Logger.w(TAG, "Unable to enter lock task mode", e)
-            }
+        val lockTaskPermitted = KioskUtil.isLockTaskPermitted(this)
+        if (!shouldEnterLockTask(currentConfig, lockTaskPermitted)) {
+            Logger.i(
+                TAG,
+                "Skipping lock task entry. demoMode=${currentConfig.demoMode}, permitted=$lockTaskPermitted"
+            )
+            return
+        }
+        try {
+            startLockTask()
+        } catch (e: SecurityException) {
+            Logger.w(TAG, "Lock task not permitted by system", e)
+        } catch (e: IllegalStateException) {
+            Logger.w(TAG, "Unable to enter lock task mode", e)
         }
     }
 
@@ -798,5 +804,10 @@ class ScannerActivity : AppCompatActivity() {
         private const val MDL_MIME_TYPE = "application/iso.18013-5+mdoc"
         private const val ADMIN_HOLD_DURATION_MS = 3000L // Reduced from 5s for easier testing
         private const val DEMO_INTERVAL_MS = 3000L // Interval for demo mode payloads
+
+        @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
+        internal fun shouldEnterLockTask(config: AdminConfig, lockTaskPermitted: Boolean): Boolean {
+            return !config.demoMode && lockTaskPermitted
+        }
     }
 }

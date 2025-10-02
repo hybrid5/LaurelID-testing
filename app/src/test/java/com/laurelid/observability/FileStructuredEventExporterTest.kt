@@ -5,6 +5,7 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import org.json.JSONObject
 
@@ -15,7 +16,10 @@ class FileStructuredEventExporterTest {
     @BeforeTest
     fun setUp() {
         tempDir = createTempDir(prefix = "telemetry")
-        exporter = FileStructuredEventExporter { tempDir }
+        exporter = FileStructuredEventExporter(
+            directoryProvider = { tempDir },
+            isDebugBuild = { true },
+        )
     }
 
     @AfterTest
@@ -49,5 +53,23 @@ class FileStructuredEventExporterTest {
         assertTrue(parsed.getBoolean("success"))
         assertEquals("OK", parsed.getString("reason_code"))
         assertEquals(false, parsed.getBoolean("trust_stale"))
+    }
+
+    @Test
+    fun `skips export when build is not debuggable`() {
+        val nonDebugExporter = FileStructuredEventExporter(
+            directoryProvider = { tempDir },
+            isDebugBuild = { false },
+        )
+
+        nonDebugExporter.export(
+            StructuredEvent(
+                event = "verification_completed",
+                timestampMs = 123L,
+            ),
+        )
+
+        val outputFile = File(tempDir, FileStructuredEventExporter.EVENTS_FILE)
+        assertFalse(outputFile.exists(), "telemetry output should not be created")
     }
 }

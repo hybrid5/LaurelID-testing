@@ -13,13 +13,17 @@ import java.security.KeyFactory
 import java.security.MessageDigest
 import java.security.PublicKey
 import java.security.Signature
+import java.security.cert.CertPathValidator
 import java.security.cert.CertificateExpiredException
 import java.security.cert.CertificateFactory
 import java.security.cert.CertificateNotYetValidException
+import java.security.cert.PKIXParameters
+import java.security.cert.TrustAnchor
 import java.security.cert.X509Certificate
 import java.time.Clock
 import java.time.Instant
 import java.util.Base64
+import java.util.Locale
 import java.security.spec.ECGenParameterSpec
 import java.security.spec.ECParameterSpec
 import java.security.spec.ECPoint
@@ -52,6 +56,8 @@ open class VerifierService constructor(
 
         val trustList = trustSnapshot?.entries.orEmpty()
         val trustStale = trustSnapshot?.stale
+        val revokedSerials = trustSnapshot?.revokedSerialNumbers.orEmpty()
+        val normalizedRevocations = revokedSerials.map { it.uppercase(Locale.US) }.toSet()
         if (trustSnapshot?.stale == true) {
             Logger.w(TAG, "Trust list cache is stale; verification proceeding with last known entries.")
         }
@@ -112,7 +118,15 @@ open class VerifierService constructor(
             return fail(ERROR_TRUST_ANCHOR_NOT_YET_VALID, issuer, docType)
         }
 
-        if (!validateCertificateChain(decodedIssuerSign1.certificateChain, certificate)) {
+        val validatedChain = validateCertificateChain(decodedIssuerSign1.certificateChain, certificate)
+            ?: return fail(ERROR_ISSUER_AUTH_CHAIN_MISMATCH, issuer, docType)
+
+        if (isCertificateRevoked(validatedChain, normalizedRevocations)) {
+            Logger.w(TAG, "Issuer or trust anchor certificate revoked")
+            return fail(ERROR_CERTIFICATE_REVOKED, issuer, docType)
+        }
+
+        if (!validatedChain.any { it.encoded.contentEquals(certificate.encoded) }) {
             Logger.w(TAG, "Issuer authentication chain mismatch")
             return fail(ERROR_ISSUER_AUTH_CHAIN_MISMATCH, issuer, docType)
         }
@@ -351,19 +365,52 @@ open class VerifierService constructor(
     private fun validateCertificateChain(
         chainBytes: List<ByteArray>,
         trustAnchor: X509Certificate
-    ): Boolean {
+    ): List<X509Certificate>? {
         if (chainBytes.isEmpty()) {
             Logger.w(TAG, "Issuer auth missing certificate chain")
-            return false
+            return null
         }
 
         val decoded = mutableListOf<X509Certificate>()
         for (entry in chainBytes) {
-            val certificate = decodeCertificateBytes(entry) ?: return false
+            val certificate = decodeCertificateBytes(entry) ?: return null
             decoded.add(certificate)
         }
 
-        return decoded.any { it.encoded.contentEquals(trustAnchor.encoded) }
+        val anchorEncoding = trustAnchor.encoded
+        val certFactory = CertificateFactory.getInstance("X.509")
+        val anchor = TrustAnchor(trustAnchor, null)
+        val trustAnchors = setOf(anchor)
+        val intermediates = decoded.filterNot { it.encoded.contentEquals(anchorEncoding) }
+
+        return try {
+            val certPath = certFactory.generateCertPath(intermediates)
+            val parameters = PKIXParameters(trustAnchors).apply { isRevocationEnabled = false }
+            CertPathValidator.getInstance("PKIX").validate(certPath, parameters)
+            if (decoded.none { it.encoded.contentEquals(anchorEncoding) }) {
+                decoded.add(trustAnchor)
+            }
+            decoded
+        } catch (throwable: Throwable) {
+            Logger.e(TAG, "Issuer authentication chain validation failed", throwable)
+            null
+        }
+    }
+
+    private fun isCertificateRevoked(
+        certificateChain: List<X509Certificate>,
+        revokedSerials: Set<String>,
+    ): Boolean {
+        if (revokedSerials.isEmpty()) {
+            return false
+        }
+        for (certificate in certificateChain) {
+            val serialHex = certificate.serialNumber.toString(16).uppercase(Locale.US)
+            if (revokedSerials.contains(serialHex)) {
+                return true
+            }
+        }
+        return false
     }
 
     private fun extractDevicePublicKey(mso: CBORObject): PublicKey? {
@@ -635,6 +682,7 @@ open class VerifierService constructor(
         const val ERROR_MISSING_DEVICE_VALUES = "MISSING_DEVICE_VALUES"
         const val ERROR_DEVICE_DATA_TAMPERED = "DEVICE_DATA_TAMPERED"
         const val ERROR_ISSUER_AUTH_CHAIN_MISMATCH = "ISSUER_AUTH_CHAIN_MISMATCH"
+        const val ERROR_CERTIFICATE_REVOKED = "CERTIFICATE_REVOKED"
         const val ERROR_INVALID_DEVICE_KEY_INFO = "INVALID_DEVICE_KEY_INFO"
         const val ERROR_MALFORMED_DEVICE_SIGNED = "MALFORMED_DEVICE_SIGNED"
         const val ERROR_INVALID_DEVICE_SIGNATURE = "INVALID_DEVICE_SIGNATURE"

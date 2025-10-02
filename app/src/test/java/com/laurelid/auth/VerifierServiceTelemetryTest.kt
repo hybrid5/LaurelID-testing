@@ -2,6 +2,8 @@ package com.laurelid.auth
 
 import com.laurelid.network.TrustListApi
 import com.laurelid.network.TrustListRepository
+import com.laurelid.network.TrustListResponse
+import com.laurelid.network.TrustListTestAuthority
 import com.laurelid.observability.InMemoryStructuredEventExporter
 import com.laurelid.observability.StructuredEventLogger
 import java.io.File
@@ -26,7 +28,8 @@ class VerifierServiceTelemetryTest {
     fun setUp() {
         cacheDir = createTempDir(prefix = "trust-cache")
         val api = object : TrustListApi {
-            override suspend fun getTrustList(): Map<String, String> = emptyMap()
+            override suspend fun getTrustList(): TrustListResponse =
+                TrustListTestAuthority.signedResponse(emptyMap())
         }
         trustListRepository = TrustListRepository(
             api = api,
@@ -34,6 +37,7 @@ class VerifierServiceTelemetryTest {
             defaultMaxAgeMillis = 0L,
             defaultStaleTtlMillis = 0L,
             ioDispatcher = Dispatchers.Unconfined,
+            manifestVerifier = TrustListTestAuthority.manifestVerifier(),
         )
         StructuredEventLogger.registerExporter(exporter)
         exporter.clear()

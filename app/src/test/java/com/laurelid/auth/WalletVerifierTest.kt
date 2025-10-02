@@ -2,6 +2,7 @@ package com.laurelid.auth
 
 import com.laurelid.network.MapBackedTrustListApi
 import com.laurelid.network.TrustListRepository
+import com.laurelid.network.TrustListTestAuthority
 import java.security.Security
 import java.time.Clock
 import java.time.Instant
@@ -17,6 +18,7 @@ import org.bouncycastle.jce.provider.BouncyCastleProvider
 class WalletVerifierTest {
 
     private val clock: Clock = Clock.fixed(Instant.parse("2024-01-01T00:00:00Z"), ZoneOffset.UTC)
+    private val manifestVerifier = TrustListTestAuthority.manifestVerifier()
 
     init {
         if (Security.getProvider(BouncyCastleProvider.PROVIDER_NAME) == null) {
@@ -33,7 +35,8 @@ class WalletVerifierTest {
         TestCredentialFixtures.withTempDir { dir ->
             val repository = TrustListRepository(
                 MapBackedTrustListApi(mapOf(scenario.issuer to scenario.certificateBase64)),
-                dir
+                dir,
+                manifestVerifier = manifestVerifier,
             )
             val verifierService = VerifierService(repository, clock)
             val verifier = WalletVerifier(verifierService)
@@ -56,7 +59,8 @@ class WalletVerifierTest {
         TestCredentialFixtures.withTempDir { dir ->
             val repository = TrustListRepository(
                 MapBackedTrustListApi(mapOf(scenario.issuer to scenario.certificateBase64)),
-                dir
+                dir,
+                manifestVerifier = manifestVerifier,
             )
             val verifierService = VerifierService(repository, clock)
             val verifier = WalletVerifier(verifierService)
@@ -78,7 +82,8 @@ class WalletVerifierTest {
         TestCredentialFixtures.withTempDir { dir ->
             val repository = TrustListRepository(
                 MapBackedTrustListApi(mapOf(scenario.issuer to scenario.certificateBase64)),
-                dir
+                dir,
+                manifestVerifier = manifestVerifier,
             )
             val verifierService = VerifierService(repository, clock)
             val verifier = WalletVerifier(verifierService)
@@ -100,7 +105,8 @@ class WalletVerifierTest {
         TestCredentialFixtures.withTempDir { dir ->
             val repository = TrustListRepository(
                 MapBackedTrustListApi(mapOf(scenario.issuer to scenario.certificateBase64)),
-                dir
+                dir,
+                manifestVerifier = manifestVerifier,
             )
             val verifierService = VerifierService(repository, clock)
             val verifier = WalletVerifier(verifierService)
@@ -121,7 +127,8 @@ class WalletVerifierTest {
         TestCredentialFixtures.withTempDir { dir ->
             val repository = TrustListRepository(
                 MapBackedTrustListApi(mapOf("OtherIssuer" to scenario.certificateBase64)),
-                dir
+                dir,
+                manifestVerifier = manifestVerifier,
             )
             val verifierService = VerifierService(repository, clock)
             val verifier = WalletVerifier(verifierService)

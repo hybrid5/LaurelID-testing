@@ -6,8 +6,10 @@ import com.laurelid.auth.VerifierService
 import com.laurelid.data.VerificationResult
 import com.laurelid.config.AdminConfig
 import com.laurelid.network.TrustListApi
-import com.laurelid.network.TrustListRepository
 import com.laurelid.network.TrustListEndpointPolicy
+import com.laurelid.network.TrustListRepository
+import com.laurelid.network.TrustListResponse
+import com.laurelid.network.TrustListTestAuthority
 import com.laurelid.util.LogManager
 import dagger.Module
 import dagger.Provides
@@ -63,21 +65,23 @@ private class FakeTrustListRepository(
     private val entries: MutableMap<String, String> = mutableMapOf(),
 ) : TrustListRepository(
     api = object : TrustListApi {
-        override suspend fun getTrustList(): Map<String, String> = entries
+        override suspend fun getTrustList(): TrustListResponse =
+            TrustListTestAuthority.signedResponse(entries)
     },
     cacheDir = File(context.cacheDir, "fake_trust_list"),
     defaultMaxAgeMillis = Long.MAX_VALUE,
     defaultStaleTtlMillis = Long.MAX_VALUE,
     ioDispatcher = Dispatchers.IO,
     initialBaseUrl = TrustListEndpointPolicy.defaultBaseUrl,
+    manifestVerifier = TrustListTestAuthority.manifestVerifier(),
 ) {
-    private var snapshot: Snapshot = Snapshot(emptyMap(), stale = false)
+    private var snapshot: Snapshot = Snapshot(emptyMap(), emptySet(), stale = false)
     private var baseUrl: String = TrustListEndpointPolicy.defaultBaseUrl
 
     fun setEntries(newEntries: Map<String, String>, stale: Boolean = false) {
         entries.clear()
         entries.putAll(newEntries)
-        snapshot = Snapshot(entries.toMap(), stale)
+        snapshot = Snapshot(entries.toMap(), emptySet(), stale)
     }
 
     override suspend fun getOrRefresh(nowMillis: Long): Snapshot = snapshot

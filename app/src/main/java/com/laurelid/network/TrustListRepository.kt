@@ -13,7 +13,9 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
 import org.json.JSONObject
+import kotlin.math.min
 
 open class TrustListRepository(
     api: TrustListApi,
@@ -24,6 +26,7 @@ open class TrustListRepository(
     initialBaseUrl: String? = null,
     private val delayProvider: suspend (Long) -> Unit = { delay(it) },
     private val retryPolicy: RetryPolicy = RetryPolicy(),
+    private val manifestVerifier: TrustListManifestVerifier,
 ) {
 
     data class RetryPolicy(
@@ -42,12 +45,16 @@ open class TrustListRepository(
 
     data class Snapshot(
         val entries: Map<String, String>,
+        val revokedSerialNumbers: Set<String>,
         val stale: Boolean,
     )
 
     private data class CacheState(
         val entries: Map<String, String>,
         val fetchedAtMillis: Long,
+        val freshLifetimeMillis: Long,
+        val staleLifetimeMillis: Long,
+        val revokedSerialNumbers: Set<String>,
     )
 
     private val mutex = Mutex()
@@ -77,37 +84,42 @@ open class TrustListRepository(
         staleTtlMillis: Long = defaultStaleTtlMillis,
     ): Snapshot = mutex.withLock {
         val current = ensureCacheLoaded()
-        val hasCache = current != null
-        val isFresh = when {
-            !hasCache -> false
-            maxAgeMillis <= 0L -> false
-            else -> nowMillis - current!!.fetchedAtMillis <= maxAgeMillis
-        }
+        val age = current?.let { nowMillis - it.fetchedAtMillis } ?: 0L
+        val freshDuration = current?.let { combineDuration(maxAgeMillis, it.freshLifetimeMillis) }
+        val isFresh = current != null && freshDuration != null &&
+            (freshDuration == Long.MAX_VALUE || age <= freshDuration)
 
-        if (hasCache && isFresh) {
+        if (isFresh && current != null) {
             Logger.d(TAG, "Returning in-memory trust list (fresh)")
-            return Snapshot(current!!.entries, stale = false)
+            return Snapshot(current.entries, current.revokedSerialNumbers, stale = false)
         }
 
         return try {
             val remote = fetchTrustListWithRetry()
-            val sanitized = remote.toMap()
-            val updatedState = CacheState(sanitized, nowMillis)
+            val sanitized = remote.entries
+            val updatedState = CacheState(
+                entries = sanitized,
+                fetchedAtMillis = nowMillis,
+                freshLifetimeMillis = remote.freshLifetimeMillis,
+                staleLifetimeMillis = remote.staleLifetimeMillis,
+                revokedSerialNumbers = remote.revokedSerialNumbers,
+            )
             memoryCache = updatedState
             persist(updatedState)
             Logger.i(TAG, "Trust list refreshed with ${sanitized.size} entries")
-            Snapshot(sanitized, stale = false)
+            Snapshot(sanitized, remote.revokedSerialNumbers, stale = false)
         } catch (throwable: Throwable) {
             Logger.e(TAG, "Failed to refresh trust list, falling back to cache", throwable)
             if (current != null) {
-                val age = nowMillis - current.fetchedAtMillis
-                val staleThreshold = if (maxAgeMillis <= 0L) 0L else maxAgeMillis
-                val effectiveTtl = staleTtlMillis.coerceAtLeast(0L)
+                val fallbackFresh = freshDuration ?: combineDuration(maxAgeMillis, current.freshLifetimeMillis)
+                val staleDuration = combineDuration(staleTtlMillis, current.staleLifetimeMillis)
                 val allowStale = when {
-                    effectiveTtl <= 0L && age > staleThreshold -> false
-                    staleThreshold <= 0L -> age <= effectiveTtl || effectiveTtl == 0L
-                    effectiveTtl == 0L -> age <= staleThreshold
-                    else -> age <= staleThreshold + effectiveTtl
+                    staleDuration == 0L && fallbackFresh == 0L -> true
+                    staleDuration == 0L -> false
+                    staleDuration == Long.MAX_VALUE -> true
+                    fallbackFresh == 0L -> age <= staleDuration
+                    fallbackFresh == Long.MAX_VALUE -> age <= staleDuration
+                    else -> age <= fallbackFresh + staleDuration
                 }
 
                 if (!allowStale) {
@@ -122,7 +134,11 @@ open class TrustListRepository(
                     throw throwable
                 }
 
-                val stale = staleThreshold <= 0L || age > staleThreshold
+                val stale = when {
+                    fallbackFresh == Long.MAX_VALUE -> false
+                    fallbackFresh == 0L -> true
+                    else -> age > fallbackFresh
+                }
                 Logger.w(TAG, "Serving cached trust list (stale=$stale)")
                 StructuredEventLogger.log(
                     event = TRUST_LIST_STALE_CACHE_SERVED_EVENT,
@@ -131,7 +147,7 @@ open class TrustListRepository(
                     reasonCode = if (stale) REASON_STALE_CACHE else REASON_CACHE_FRESH,
                     trustStale = stale,
                 )
-                Snapshot(current.entries, stale = stale)
+                Snapshot(current.entries, current.revokedSerialNumbers, stale = stale)
             } else {
                 throw throwable
             }
@@ -141,14 +157,19 @@ open class TrustListRepository(
     open fun cached(nowMillis: Long = System.currentTimeMillis()): Snapshot? {
         val state = memoryCache ?: return null
         val age = nowMillis - state.fetchedAtMillis
-        val staleThreshold = if (defaultMaxAgeMillis <= 0L) 0L else defaultMaxAgeMillis
-        val effectiveTtl = defaultStaleTtlMillis.coerceAtLeast(0L)
+        val freshDuration = combineDuration(defaultMaxAgeMillis, state.freshLifetimeMillis)
+        val staleDuration = combineDuration(defaultStaleTtlMillis, state.staleLifetimeMillis)
+        val staleBoundary = when {
+            staleDuration == 0L && freshDuration == 0L -> 0L
+            staleDuration == 0L -> freshDuration
+            freshDuration == Long.MAX_VALUE -> staleDuration
+            staleDuration == Long.MAX_VALUE -> Long.MAX_VALUE
+            else -> freshDuration + staleDuration
+        }
 
-        val beyondTtl = when {
-            staleThreshold <= 0L && effectiveTtl <= 0L -> age > 0L
-            staleThreshold <= 0L -> age > effectiveTtl
-            effectiveTtl <= 0L -> age > staleThreshold
-            else -> age > staleThreshold + effectiveTtl
+        val beyondTtl = when (staleBoundary) {
+            Long.MAX_VALUE -> false
+            else -> age > staleBoundary
         }
 
         if (beyondTtl) {
@@ -157,8 +178,12 @@ open class TrustListRepository(
             return null
         }
 
-        val stale = staleThreshold <= 0L || age > staleThreshold
-        return Snapshot(state.entries, stale)
+        val stale = when {
+            freshDuration == Long.MAX_VALUE -> false
+            freshDuration == 0L -> age > 0L
+            else -> age > freshDuration
+        }
+        return Snapshot(state.entries, state.revokedSerialNumbers, stale)
     }
 
     open fun updateEndpoint(newApi: TrustListApi, newBaseUrl: String) {
@@ -192,7 +217,22 @@ open class TrustListRepository(
         return throwable.javaClass.name.substringAfterLast('.')
     }
 
-    private suspend fun fetchTrustListWithRetry(): Map<String, String> {
+    private fun combineDuration(requested: Long, manifest: Long): Long {
+        val requestedDuration = if (requested <= 0L) 0L else requested
+        val manifestDuration = when (manifest) {
+            Long.MAX_VALUE -> Long.MAX_VALUE
+            else -> manifest
+        }
+        return when {
+            requestedDuration == 0L -> 0L
+            manifestDuration == 0L -> 0L
+            manifestDuration == Long.MAX_VALUE -> requestedDuration
+            requestedDuration == Long.MAX_VALUE -> manifestDuration
+            else -> min(requestedDuration, manifestDuration)
+        }
+    }
+
+    private suspend fun fetchTrustListWithRetry(): TrustListManifestVerifier.VerifiedManifest {
         var attempt = 0
         var nextDelayMillis = retryPolicy.initialDelayMillis
         var lastError: Throwable? = null
@@ -201,6 +241,7 @@ open class TrustListRepository(
             val attemptStart = System.currentTimeMillis()
             try {
                 val payload = trustListApi.getTrustList()
+                val verified = manifestVerifier.verify(payload)
                 val duration = System.currentTimeMillis() - attemptStart
                 StructuredEventLogger.log(
                     event = TRUST_LIST_REFRESH_EVENT,
@@ -212,7 +253,10 @@ open class TrustListRepository(
                 if (attempt > 0) {
                     Logger.i(TAG, "Trust list refresh succeeded after $attempt retries")
                 }
-                return payload
+                if (verified.freshLifetimeMillis == 0L && verified.staleLifetimeMillis == 0L) {
+                    Logger.w(TAG, "Trust list manifest set zero cache lifetime; treating as immediate expiry")
+                }
+                return verified
             } catch (throwable: Throwable) {
                 lastError = throwable
                 val duration = System.currentTimeMillis() - attemptStart
@@ -261,11 +305,16 @@ open class TrustListRepository(
                 }
                 val json = JSONObject().apply {
                     put(KEY_FETCHED_AT, state.fetchedAtMillis)
+                    put(KEY_FRESH_TTL, state.freshLifetimeMillis)
+                    put(KEY_STALE_TTL, state.staleLifetimeMillis)
                     val entriesJson = JSONObject()
                     for ((issuer, certificate) in state.entries) {
                         entriesJson.put(issuer, certificate)
                     }
                     put(KEY_ENTRIES, entriesJson)
+                    val revokedArray = JSONArray()
+                    state.revokedSerialNumbers.forEach { revokedArray.put(it) }
+                    put(KEY_REVOKED_SERIALS, revokedArray)
                 }
                 cacheFile.writeText(json.toString())
             } catch (throwable: Throwable) {
@@ -302,7 +351,27 @@ open class TrustListRepository(
                 }
             }
 
-            CacheState(entries.toMap(), fetchedAt)
+            val freshTtl = json.optLong(KEY_FRESH_TTL, Long.MAX_VALUE).coerceAtLeast(0L)
+            val staleTtl = json.optLong(KEY_STALE_TTL, Long.MAX_VALUE).coerceAtLeast(0L)
+            val revokedArray = json.optJSONArray(KEY_REVOKED_SERIALS)
+            val revoked = mutableSetOf<String>()
+            if (revokedArray != null) {
+                for (index in 0 until revokedArray.length()) {
+                    val value = revokedArray.optString(index, null) ?: continue
+                    val normalized = value.trim()
+                    if (normalized.isNotEmpty()) {
+                        revoked.add(normalized)
+                    }
+                }
+            }
+
+            CacheState(
+                entries = entries.toMap(),
+                fetchedAtMillis = fetchedAt,
+                freshLifetimeMillis = freshTtl,
+                staleLifetimeMillis = staleTtl,
+                revokedSerialNumbers = revoked,
+            )
         } catch (throwable: Throwable) {
             Logger.e(TAG, "Failed to read trust list cache from disk", throwable)
             null
@@ -315,6 +384,9 @@ open class TrustListRepository(
         private const val CACHE_FILE_NAME = "trust_list.json"
         private const val KEY_FETCHED_AT = "fetchedAt"
         private const val KEY_ENTRIES = "entries"
+        private const val KEY_FRESH_TTL = "freshTtl"
+        private const val KEY_STALE_TTL = "staleTtl"
+        private const val KEY_REVOKED_SERIALS = "revokedSerials"
         private val DEFAULT_MAX_AGE_MILLIS = TimeUnit.HOURS.toMillis(12)
         private val DEFAULT_STALE_TTL_MILLIS = TimeUnit.DAYS.toMillis(3)
         internal const val DEFAULT_MAX_ATTEMPTS = 3
@@ -339,6 +411,8 @@ open class TrustListRepository(
         ): TrustListRepository {
             val directory = File(context.filesDir, CACHE_DIRECTORY)
             val sanitizedBaseUrl = TrustListEndpointPolicy.requireEndpointAllowed(baseUrl)
+            val anchors = TrustListManifestVerifier.fromBase64Anchors(BuildConfig.TRUST_LIST_MANIFEST_ROOT_CERT)
+            val manifestVerifier = TrustListManifestVerifier(anchors)
             return TrustListRepository(
                 api = api,
                 cacheDir = directory,
@@ -346,6 +420,7 @@ open class TrustListRepository(
                 defaultStaleTtlMillis = BuildConfig.TRUST_LIST_CACHE_STALE_TTL_MILLIS,
                 ioDispatcher = ioDispatcher,
                 initialBaseUrl = sanitizedBaseUrl,
+                manifestVerifier = manifestVerifier,
             )
         }
     }

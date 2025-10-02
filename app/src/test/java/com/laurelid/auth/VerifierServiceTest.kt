@@ -2,11 +2,15 @@ package com.laurelid.auth
 
 import com.laurelid.network.MapBackedTrustListApi
 import com.laurelid.network.TrustListRepository
+import com.laurelid.network.TrustListTestAuthority
+import java.io.ByteArrayInputStream
 import java.security.Security
+import java.security.cert.CertificateFactory
 import java.time.Clock
 import java.time.Instant
 import java.time.ZoneOffset
 import java.time.temporal.ChronoUnit
+import java.util.Base64
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -17,6 +21,7 @@ import org.bouncycastle.jce.provider.BouncyCastleProvider
 class VerifierServiceTest {
 
     private val clock: Clock = Clock.fixed(Instant.parse("2024-01-01T00:00:00Z"), ZoneOffset.UTC)
+    private val manifestVerifier = TrustListTestAuthority.manifestVerifier()
 
     init {
         if (Security.getProvider(BouncyCastleProvider.PROVIDER_NAME) == null) {
@@ -32,7 +37,11 @@ class VerifierServiceTest {
         )
         TestCredentialFixtures.withTempDir { dir ->
             val entries = mapOf(scenario.issuer to scenario.certificateBase64)
-            val repository = TrustListRepository(MapBackedTrustListApi(entries), dir)
+            val repository = TrustListRepository(
+                MapBackedTrustListApi(entries),
+                dir,
+                manifestVerifier = manifestVerifier,
+            )
             val service = VerifierService(repository, clock)
 
             val result = service.verify(scenario.parsed, maxCacheAgeMillis = 0)
@@ -50,13 +59,17 @@ class VerifierServiceTest {
             validUntil = clock.instant().plus(1, ChronoUnit.DAYS)
         )
         TestCredentialFixtures.withTempDir { dir ->
-            val repository = object : TrustListRepository(MapBackedTrustListApi(emptyMap()), dir) {
+            val repository = object : TrustListRepository(
+                MapBackedTrustListApi(emptyMap()),
+                dir,
+                manifestVerifier = manifestVerifier,
+            ) {
                 override suspend fun getOrRefresh(
                     nowMillis: Long,
                     maxAgeMillis: Long,
                     staleTtlMillis: Long,
                 ): Snapshot {
-                    return Snapshot(emptyMap(), stale = false)
+                    return Snapshot(emptyMap(), emptySet(), stale = false)
                 }
             }
             val service = VerifierService(repository, clock)
@@ -75,7 +88,11 @@ class VerifierServiceTest {
             validUntil = clock.instant().plus(1, ChronoUnit.DAYS)
         )
         TestCredentialFixtures.withTempDir { dir ->
-            val repository = object : TrustListRepository(MapBackedTrustListApi(emptyMap()), dir) {
+            val repository = object : TrustListRepository(
+                MapBackedTrustListApi(emptyMap()),
+                dir,
+                manifestVerifier = manifestVerifier,
+            ) {
                 override suspend fun getOrRefresh(
                     nowMillis: Long,
                     maxAgeMillis: Long,
@@ -101,13 +118,17 @@ class VerifierServiceTest {
         )
         TestCredentialFixtures.withTempDir { dir ->
             val entries = mapOf(scenario.issuer to scenario.certificateBase64)
-            val repository = object : TrustListRepository(MapBackedTrustListApi(entries), dir) {
+            val repository = object : TrustListRepository(
+                MapBackedTrustListApi(entries),
+                dir,
+                manifestVerifier = manifestVerifier,
+            ) {
                 override suspend fun getOrRefresh(
                     nowMillis: Long,
                     maxAgeMillis: Long,
                     staleTtlMillis: Long,
                 ): Snapshot {
-                    return Snapshot(entries, stale = true)
+                    return Snapshot(entries, emptySet(), stale = true)
                 }
             }
             val service = VerifierService(repository, clock)
@@ -129,7 +150,11 @@ class VerifierServiceTest {
         )
         TestCredentialFixtures.withTempDir { dir ->
             val entries = mapOf(scenario.issuer to scenario.certificateBase64)
-            val repository = TrustListRepository(MapBackedTrustListApi(entries), dir)
+            val repository = TrustListRepository(
+                MapBackedTrustListApi(entries),
+                dir,
+                manifestVerifier = manifestVerifier,
+            )
             val service = VerifierService(repository, clock)
 
             val result = service.verify(scenario.parsed, maxCacheAgeMillis = 0)
@@ -148,13 +173,43 @@ class VerifierServiceTest {
         )
         TestCredentialFixtures.withTempDir { dir ->
             val entries = mapOf(scenario.issuer to scenario.certificateBase64)
-            val repository = TrustListRepository(MapBackedTrustListApi(entries), dir)
+            val repository = TrustListRepository(
+                MapBackedTrustListApi(entries),
+                dir,
+                manifestVerifier = manifestVerifier,
+            )
             val service = VerifierService(repository, clock)
 
             val result = service.verify(scenario.parsed, maxCacheAgeMillis = 0)
 
             assertFalse(result.success)
             assertEquals(VerifierService.ERROR_ISSUER_AUTH_CHAIN_MISMATCH, result.error)
+        }
+    }
+
+    @Test
+    fun `verifier rejects revoked trust anchor`() = runBlocking {
+        val scenario = TestCredentialFixtures.createScenario(
+            clock = clock,
+            validUntil = clock.instant().plus(1, ChronoUnit.DAYS),
+        )
+        TestCredentialFixtures.withTempDir { dir ->
+            val entries = mapOf(scenario.issuer to scenario.certificateBase64)
+            val certificateFactory = CertificateFactory.getInstance("X.509")
+            val decoded = Base64.getDecoder().decode(scenario.certificateBase64)
+            val certificate = certificateFactory.generateCertificate(ByteArrayInputStream(decoded)) as java.security.cert.X509Certificate
+            val revoked = setOf(certificate.serialNumber.toString(16).uppercase())
+            val repository = TrustListRepository(
+                MapBackedTrustListApi(entries, revokedSerials = revoked),
+                dir,
+                manifestVerifier = manifestVerifier,
+            )
+            val service = VerifierService(repository, clock)
+
+            val result = service.verify(scenario.parsed, maxCacheAgeMillis = 0)
+
+            assertFalse(result.success)
+            assertEquals(VerifierService.ERROR_CERTIFICATE_REVOKED, result.error)
         }
     }
 
@@ -167,7 +222,11 @@ class VerifierServiceTest {
         )
         TestCredentialFixtures.withTempDir { dir ->
             val entries = mapOf(scenario.issuer to scenario.certificateBase64)
-            val repository = TrustListRepository(MapBackedTrustListApi(entries), dir)
+            val repository = TrustListRepository(
+                MapBackedTrustListApi(entries),
+                dir,
+                manifestVerifier = manifestVerifier,
+            )
             val service = VerifierService(repository, clock)
 
             val result = service.verify(scenario.parsed, maxCacheAgeMillis = 0)

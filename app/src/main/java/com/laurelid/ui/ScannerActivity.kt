@@ -43,6 +43,7 @@ import com.google.mlkit.vision.common.InputImage
 import com.laurelid.BuildConfig
 import com.laurelid.R
 import com.laurelid.auth.ISO18013Parser
+import com.laurelid.auth.MdocParseException
 import com.laurelid.auth.ParsedMdoc // Ensure this class exists and has necessary fields
 import com.laurelid.auth.WalletVerifier
 import com.laurelid.config.AdminConfig
@@ -455,9 +456,15 @@ class ScannerActivity : AppCompatActivity() {
         isProcessingCredential = true
         stopCamera() // Stop camera explicitly to free resources during verification
         updateState(ScannerState.VERIFYING)
-        // Assume parser.parseFromQrPayload is synchronous or handles its own threading
-        val parsedMdoc = parser.parseFromQrPayload(effectivePayload)
-        verifyAndPersist(parsedMdoc, isDemo)
+        try {
+            // Assume parser.parseFromQrPayload is synchronous or handles its own threading
+            val parsedMdoc = parser.parseFromQrPayload(effectivePayload)
+            verifyAndPersist(parsedMdoc, isDemo)
+        } catch (error: MdocParseException) {
+            onCredentialParsingFailed("QR", error)
+        } catch (error: Exception) {
+            onCredentialParsingFailed("QR", error)
+        }
     }
 
     private fun handleNfcIntent(intent: Intent?) {
@@ -491,11 +498,48 @@ class ScannerActivity : AppCompatActivity() {
             isProcessingCredential = true
             stopCamera() // Stop camera when processing NFC
             updateState(ScannerState.VERIFYING)
-            val parsedMdoc = parser.parseFromNfc(payload) // Assume parseFromNfc exists and is similar to parseFromQrPayload
-            verifyAndPersist(parsedMdoc, demoPayloadUsed = false)
+            try {
+                val parsedMdoc = parser.parseFromNfc(payload) // Assume parseFromNfc exists and is similar to parseFromQrPayload
+                verifyAndPersist(parsedMdoc, demoPayloadUsed = false)
+            } catch (error: MdocParseException) {
+                onCredentialParsingFailed("NFC", error)
+            } catch (error: Exception) {
+                onCredentialParsingFailed("NFC", error)
+            }
         } else {
             Toast.makeText(this, R.string.toast_nfc_error, Toast.LENGTH_LONG).show() // Ensure string exists
             Logger.w(TAG, "NFC NDEF message did not contain a valid mdoc payload.")
+        }
+    }
+
+    private fun onCredentialParsingFailed(source: String, error: Throwable) {
+        if (error is MdocParseException) {
+            Logger.w(TAG, "Failed to parse $source credential: ${error.error.detail}", error)
+        } else {
+            Logger.e(TAG, "Unexpected error while parsing $source credential", error)
+        }
+        showCredentialParsingErrorToast()
+        recoverFromProcessingFailure()
+    }
+
+    private fun showCredentialParsingErrorToast() {
+        Toast.makeText(this, R.string.result_details_error_unknown, Toast.LENGTH_LONG).show()
+    }
+
+    private fun recoverFromProcessingFailure() {
+        isProcessingCredential = false
+        updateState(ScannerState.SCANNING)
+        if (currentConfig.demoMode) {
+            if (demoJob?.isActive != true) {
+                startDemoMode()
+            }
+        } else {
+            val hasPermission = ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+            if (hasPermission) {
+                startCamera()
+            } else {
+                requestCameraPermission()
+            }
         }
     }
 

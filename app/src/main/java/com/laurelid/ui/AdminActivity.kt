@@ -24,6 +24,7 @@ class AdminActivity : AppCompatActivity() {
 
     private lateinit var configManager: ConfigManager
     private lateinit var adminPinManager: AdminPinManager
+    private lateinit var initialConfig: AdminConfig
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -56,6 +57,7 @@ class AdminActivity : AppCompatActivity() {
 
     private fun bindConfig() {
         val config = configManager.getConfig()
+        initialConfig = config
         val venueInput: EditText = findViewById(R.id.venueIdInput)
         val refreshInput: EditText = findViewById(R.id.trustRefreshInput)
         val apiInput: EditText = findViewById(R.id.apiEndpointInput)
@@ -103,8 +105,11 @@ class AdminActivity : AppCompatActivity() {
             val venueId = venueInput.text.toString().trim()
             val refreshMinutes = refreshInput.text.toString().toIntOrNull()
                 ?: AdminConfig.DEFAULT_TRUST_REFRESH_MINUTES
-            val endpoint = if (TrustListEndpointPolicy.allowOverride) {
-                apiInput.text.toString().trim()
+            val sanitizedEndpoint = if (TrustListEndpointPolicy.allowOverride) {
+                TrustListEndpointPolicy.normalizeOverrideOrNull(
+                    apiInput.text.toString(),
+                    allow = true,
+                ).orEmpty()
             } else {
                 ""
             }
@@ -123,9 +128,8 @@ class AdminActivity : AppCompatActivity() {
                 return@setOnClickListener
             }
 
-            var pinUpdated = false
-
-            if (newPin.isNotBlank() || confirmPin.isNotBlank() || !pinCurrentlySet) {
+            val requiresPinUpdate = newPin.isNotBlank() || confirmPin.isNotBlank() || !pinCurrentlySet
+            if (requiresPinUpdate) {
                 if (newPin != confirmPin) {
                     confirmPinInput.error = getString(R.string.admin_pin_mismatch)
                     return@setOnClickListener
@@ -139,56 +143,69 @@ class AdminActivity : AppCompatActivity() {
                     )
                     return@setOnClickListener
                 }
-
-                if (pinCurrentlySet && currentPin.isBlank()) {
-                    currentPinInput.error = getString(R.string.admin_pin_error)
-                    return@setOnClickListener
-                }
-
-                if (pinCurrentlySet) {
-                    when (val verification = adminPinManager.verifyPin(currentPin)) {
-                        AdminPinManager.VerificationResult.Success -> {
-                            adminPinManager.updatePin(newPin)
-                            pinUpdated = true
-                        }
-                        is AdminPinManager.VerificationResult.Failure -> {
-                            currentPinInput.error = getString(R.string.admin_pin_error)
-                            if (verification.remainingAttempts > 0) {
-                                Toast.makeText(
-                                    this,
-                                    getString(R.string.admin_pin_attempts_remaining, verification.remainingAttempts),
-                                    Toast.LENGTH_SHORT
-                                ).show()
-                            } else {
-                                Toast.makeText(this, R.string.admin_pin_error, Toast.LENGTH_SHORT).show()
-                            }
-                            return@setOnClickListener
-                        }
-                        is AdminPinManager.VerificationResult.Locked -> {
-                            val message = getString(
-                                R.string.admin_pin_locked,
-                                formatLockoutDuration(verification.remainingMillis)
-                            )
-                            Toast.makeText(this, message, Toast.LENGTH_LONG).show()
-                            return@setOnClickListener
-                        }
-                        AdminPinManager.VerificationResult.PinNotSet -> {
-                            adminPinManager.updatePin(newPin)
-                            pinUpdated = true
-                        }
-                    }
-                } else {
-                    adminPinManager.updatePin(newPin)
-                    pinUpdated = true
-                }
             }
 
             val updatedConfig = AdminConfig(
                 venueId = venueId,
                 trustRefreshIntervalMinutes = refreshMinutes,
-                apiEndpointOverride = endpoint,
+                apiEndpointOverride = sanitizedEndpoint,
                 demoMode = demoSwitch.isChecked,
             )
+
+            val needsSensitiveVerification = pinCurrentlySet && (
+                updatedConfig.demoMode != initialConfig.demoMode ||
+                    updatedConfig.apiEndpointOverride != initialConfig.apiEndpointOverride
+                )
+
+            val needsVerification = pinCurrentlySet && (needsSensitiveVerification || requiresPinUpdate)
+            var verificationPassed = !needsVerification
+
+            if (needsVerification) {
+                if (currentPin.isBlank()) {
+                    currentPinInput.error = getString(R.string.admin_pin_error)
+                    return@setOnClickListener
+                }
+                when (val verification = adminPinManager.verifyPin(currentPin)) {
+                    AdminPinManager.VerificationResult.Success -> {
+                        verificationPassed = true
+                    }
+                    is AdminPinManager.VerificationResult.Failure -> {
+                        currentPinInput.error = getString(R.string.admin_pin_error)
+                        if (verification.remainingAttempts > 0) {
+                            Toast.makeText(
+                                this,
+                                getString(R.string.admin_pin_attempts_remaining, verification.remainingAttempts),
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        } else {
+                            Toast.makeText(this, R.string.admin_pin_error, Toast.LENGTH_SHORT).show()
+                        }
+                        return@setOnClickListener
+                    }
+                    is AdminPinManager.VerificationResult.Locked -> {
+                        val message = getString(
+                            R.string.admin_pin_locked,
+                            formatLockoutDuration(verification.remainingMillis)
+                        )
+                        Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+                        return@setOnClickListener
+                    }
+                    AdminPinManager.VerificationResult.PinNotSet -> {
+                        verificationPassed = true
+                    }
+                }
+            }
+
+            var pinUpdated = false
+            if (requiresPinUpdate && (!pinCurrentlySet || verificationPassed)) {
+                adminPinManager.updatePin(newPin)
+                pinUpdated = true
+            }
+
+            if (needsSensitiveVerification && !verificationPassed) {
+                return@setOnClickListener
+            }
+
             configManager.saveConfig(updatedConfig)
             val message = if (pinUpdated) {
                 getString(R.string.admin_pin_updated)

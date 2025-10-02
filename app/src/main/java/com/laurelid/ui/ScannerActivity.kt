@@ -785,13 +785,7 @@ class ScannerActivity : AppCompatActivity() {
             )
             return
         }
-        try {
-            startLockTask()
-        } catch (e: SecurityException) {
-            Logger.w(TAG, "Lock task not permitted by system", e)
-        } catch (e: IllegalStateException) {
-            Logger.w(TAG, "Unable to enter lock task mode", e)
-        }
+        KioskUtil.startLockTaskIfPermitted(this, lockTaskPermitted)
     }
 
     @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)

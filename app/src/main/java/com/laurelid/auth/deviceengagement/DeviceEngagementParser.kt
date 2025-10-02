@@ -35,11 +35,30 @@ class DeviceEngagementParser {
     }
 
     private fun parseUri(payload: String): URI {
-        return try {
-            URI(payload)
+        val trimmed = payload.trim()
+        val uri = try {
+            URI(trimmed)
         } catch (error: IllegalArgumentException) {
             throw MdocParseException(MdocError.InvalidUri("Invalid mdoc URI"), error)
         }
+        val scheme = uri.scheme?.lowercase(LocaleRoot)
+        if (scheme != "mdoc") {
+            val schemeValue = uri.scheme ?: ""
+            throw MdocParseException(
+                MdocError.InvalidUri("Unsupported URI scheme: $schemeValue"),
+            )
+        }
+        val host = uri.host?.lowercase(LocaleRoot)
+        val schemeSpecific = uri.schemeSpecificPart?.lowercase(LocaleRoot) ?: ""
+        val hasEngagementHost = host == "engagement"
+        val hasEngagementPath = schemeSpecific.startsWith("engagement") ||
+            schemeSpecific.startsWith("//engagement")
+        if (!hasEngagementHost && !hasEngagementPath) {
+            throw MdocParseException(
+                MdocError.InvalidUri("Unsupported mdoc authority: ${uri.host ?: uri.schemeSpecificPart}"),
+            )
+        }
+        return uri
     }
 
     private fun parseQuery(rawQuery: String?): Map<String, String> {
@@ -49,9 +68,23 @@ class DeviceEngagementParser {
                 null
             } else {
                 val parts = component.split('=', limit = 2)
-                val key = URLDecoder.decode(parts[0], StandardCharsets.UTF_8.name())
+                val key = try {
+                    URLDecoder.decode(parts[0], StandardCharsets.UTF_8.name())
+                } catch (error: IllegalArgumentException) {
+                    throw MdocParseException(
+                        MdocError.InvalidUri("Device engagement query parameter name was not valid encoding"),
+                        error,
+                    )
+                }
                 val value = if (parts.size > 1) {
-                    URLDecoder.decode(parts[1], StandardCharsets.UTF_8.name())
+                    try {
+                        URLDecoder.decode(parts[1], StandardCharsets.UTF_8.name())
+                    } catch (error: IllegalArgumentException) {
+                        throw MdocParseException(
+                            MdocError.InvalidUri("Device engagement query parameter value was not valid encoding"),
+                            error,
+                        )
+                    }
                 } else {
                     ""
                 }

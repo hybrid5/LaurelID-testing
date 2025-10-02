@@ -5,6 +5,7 @@ import android.util.Base64
 import androidx.annotation.VisibleForTesting
 import androidx.security.crypto.EncryptedFile
 import androidx.security.crypto.MasterKey
+import com.laurelid.auth.VerifierService
 import com.laurelid.config.AdminConfig
 import com.laurelid.data.VerificationResult
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -59,7 +60,8 @@ open class LogManager constructor(
                 put("venueId", REDACTED_VENUE_ID)
                 put("success", JSONObject.NULL)
                 put("ageOver21", JSONObject.NULL)
-                val errorHash = result.error?.let { hashError(it) }
+                val reasonCode = VerifierService.sanitizeReasonCode(result.error)
+                val errorHash = reasonCode?.let { hashError(it) }
                 put("error", errorHash ?: JSONObject.NULL)
                 put("demoMode", JSONObject.NULL)
             }.toString()

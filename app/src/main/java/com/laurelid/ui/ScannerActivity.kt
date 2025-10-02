@@ -566,11 +566,13 @@ class ScannerActivity : AppCompatActivity() {
                 buildClientFailureResult(parsedMdoc)
             }
 
-            persistResult(verificationResult, configSnapshot, demoPayloadUsed)
-            transactionManager.record(verificationResult) // Assuming TransactionManager.record exists
+            val sanitizedResult = sanitizeResult(verificationResult)
+
+            persistResult(sanitizedResult, configSnapshot, demoPayloadUsed)
+            transactionManager.record(sanitizedResult) // Assuming TransactionManager.record exists
             // transactionManager.printResult(verificationResult) // This seems for debugging, decide if needed
 
-            navigateToResult(verificationResult) // Navigate after all processing
+            navigateToResult(sanitizedResult) // Navigate after all processing
         }
     }
 
@@ -806,6 +808,18 @@ class ScannerActivity : AppCompatActivity() {
                 docType = parsedMdoc.docType,
                 error = VerifierService.ERROR_CLIENT_EXCEPTION,
                 trustStale = null,
+            )
+        }
+
+        @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
+        internal fun sanitizeResult(result: VerificationResult): VerificationResult {
+            if (result.success) {
+                return result
+            }
+            return result.copy(
+                issuer = null,
+                subjectDid = null,
+                error = VerifierService.sanitizeReasonCode(result.error),
             )
         }
     }

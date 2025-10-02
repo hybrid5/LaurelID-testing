@@ -107,6 +107,29 @@ class LogManagerTest {
         assertNotEquals(errorReason, storedError)
     }
 
+    @Test
+    fun sanitizesErrorBeforeHashing() {
+        val logManager = object : LogManager(context, clock) {
+            override val maxLogBytes: Long = Long.MAX_VALUE
+        }
+        logManager.purgeLegacyLogs()
+
+        val result = buildResult().copy(
+            success = false,
+            error = "Issuer leak for did:example:bob",
+        )
+
+        logManager.appendVerification(result, buildConfig(), demoModeUsed = false)
+
+        val file = File(File(context.filesDir, "logs"), "verify.log")
+        val decrypted = logManager.readEncryptedLines(file)
+        assertEquals(1, decrypted.size)
+        val parsed = JSONObject(decrypted.first())
+        val storedError = parsed.optString("error")
+        val expectedHash = logManager.hashError(VerifierService.ERROR_CLIENT_EXCEPTION)
+        assertEquals(expectedHash, storedError)
+    }
+
     private fun buildResult(subject: String? = "did:example:alice") = VerificationResult(
         success = true,
         ageOver21 = true,

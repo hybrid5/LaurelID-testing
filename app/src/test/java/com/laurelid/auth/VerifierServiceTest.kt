@@ -248,4 +248,17 @@ class VerifierServiceTest {
             assertNull(result.subjectDid)
         }
     }
+
+    @Test
+    fun `sanitizeReasonCode normalizes and falls back`() {
+        assertNull(VerifierService.sanitizeReasonCode(null))
+        assertEquals(
+            VerifierService.ERROR_INVALID_SIGNATURE,
+            VerifierService.sanitizeReasonCode("invalid_signature"),
+        )
+        assertEquals(
+            VerifierService.ERROR_CLIENT_EXCEPTION,
+            VerifierService.sanitizeReasonCode("Invalid signature from did:example:alice"),
+        )
+    }
 }

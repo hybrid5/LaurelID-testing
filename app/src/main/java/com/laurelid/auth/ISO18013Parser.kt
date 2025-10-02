@@ -5,11 +5,13 @@ import com.laurelid.auth.deviceengagement.DeviceEngagementTransportFactory
 import com.laurelid.auth.deviceengagement.TransportFactory
 import com.laurelid.auth.deviceengagement.TransportMessage
 import com.laurelid.util.Logger
+import javax.inject.Inject
 
 /**
  * Parser for ISO 18013-5 mobile driving licence engagements.
  */
-class ISO18013Parser(
+
+class ISO18013Parser @Inject constructor(
     private val engagementParser: DeviceEngagementParser = DeviceEngagementParser(),
     private val transportFactory: TransportFactory = DeviceEngagementTransportFactory(),
     private val deviceResponseParser: DeviceResponseParser = DeviceResponseParser(

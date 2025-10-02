@@ -50,6 +50,7 @@ class VerifierServiceTest {
             assertTrue(result.success)
             assertEquals(scenario.issuer, result.issuer)
             assertEquals(null, result.error)
+            assertEquals(false, result.trustStale)
         }
     }
 
@@ -81,6 +82,7 @@ class VerifierServiceTest {
             assertEquals(VerifierService.ERROR_TRUST_LIST_UNAVAILABLE, result.error)
             assertNull(result.issuer)
             assertNull(result.subjectDid)
+            assertEquals(false, result.trustStale)
         }
     }
 
@@ -143,6 +145,7 @@ class VerifierServiceTest {
             assertTrue(result.success)
             assertEquals(scenario.issuer, result.issuer)
             assertEquals(null, result.error)
+            assertEquals(true, result.trustStale)
         }
     }
 

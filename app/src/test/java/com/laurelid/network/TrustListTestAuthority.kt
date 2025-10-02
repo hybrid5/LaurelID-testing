@@ -40,6 +40,7 @@ object TrustListTestAuthority {
         freshLifetimeMillis: Long = TimeUnit.HOURS.toMillis(12),
         staleLifetimeMillis: Long = TimeUnit.DAYS.toMillis(3),
         revokedSerials: Set<String> = emptySet(),
+        version: Long = 1L,
     ): TrustListResponse {
         val manifestJson = JSONObject().apply {
             put("entries", JSONObject(entries))
@@ -53,6 +54,7 @@ object TrustListTestAuthority {
                 }
             }
             put("revokedSerialNumbers", revokedArray)
+            put("version", version)
         }
 
         val manifestBytes = manifestJson.toString().toByteArray(Charsets.UTF_8)

@@ -199,7 +199,7 @@ class TrustListRepositoryTest {
     }
 
     @Test
-    fun `throws when refresh fails and no cache available`() = runBlocking {
+    fun `cold start offline fails closed`() = runBlocking {
         withTempDir { dir ->
             val api = RecordingTrustListApi(mapOf("AZ" to "cert"))
             api.shouldFail = true
@@ -219,7 +219,7 @@ class TrustListRepositoryTest {
     }
 
     @Test
-    fun `loads cached data from disk on cold start`() = runBlocking {
+    fun `warm cache within ttl served offline`() = runBlocking {
         withTempDir { dir ->
             val initialApi = RecordingTrustListApi(mapOf("AZ" to "cert"))
             val repository = TrustListRepository(
@@ -378,6 +378,76 @@ class TrustListRepositoryTest {
                 "manifest",
                 Base64.getEncoder().encodeToString("{}".toByteArray()),
             )
+            cacheFile.writeText(tampered.toString())
+
+            val offlineApi = RecordingTrustListApi(emptyMap()).apply { shouldFail = true }
+            val coldRepository = TrustListRepository(
+                offlineApi,
+                dir,
+                defaultMaxAgeMillis = 10_000L,
+                manifestVerifier = manifestVerifier,
+                initialBaseUrl = TrustListEndpointPolicy.defaultBaseUrl,
+            )
+
+            assertFailsWith<IOException> {
+                coldRepository.getOrRefresh(nowMillis = 5_000L)
+            }
+        }
+    }
+
+    @Test
+    fun `checksum mismatch invalidates cached manifest`() = runBlocking {
+        withTempDir { dir ->
+            val api = RecordingTrustListApi(mapOf("AZ" to "cert"))
+            val repository = TrustListRepository(
+                api,
+                dir,
+                defaultMaxAgeMillis = 10_000L,
+                manifestVerifier = manifestVerifier,
+                initialBaseUrl = TrustListEndpointPolicy.defaultBaseUrl,
+            )
+
+            repository.getOrRefresh(nowMillis = 0L)
+
+            val cacheFile = dir.resolve("trust_list.json")
+            val tampered = JSONObject(cacheFile.readText()).apply {
+                put("checksum", Base64.getEncoder().encodeToString(ByteArray(32) { 0xFF.toByte() }))
+            }
+            cacheFile.writeText(tampered.toString())
+
+            val offlineApi = RecordingTrustListApi(emptyMap()).apply { shouldFail = true }
+            val coldRepository = TrustListRepository(
+                offlineApi,
+                dir,
+                defaultMaxAgeMillis = 10_000L,
+                manifestVerifier = manifestVerifier,
+                initialBaseUrl = TrustListEndpointPolicy.defaultBaseUrl,
+            )
+
+            assertFailsWith<IOException> {
+                coldRepository.getOrRefresh(nowMillis = 5_000L)
+            }
+        }
+    }
+
+    @Test
+    fun `version mismatch invalidates cached manifest`() = runBlocking {
+        withTempDir { dir ->
+            val api = RecordingTrustListApi(mapOf("AZ" to "cert"))
+            val repository = TrustListRepository(
+                api,
+                dir,
+                defaultMaxAgeMillis = 10_000L,
+                manifestVerifier = manifestVerifier,
+                initialBaseUrl = TrustListEndpointPolicy.defaultBaseUrl,
+            )
+
+            repository.getOrRefresh(nowMillis = 0L)
+
+            val cacheFile = dir.resolve("trust_list.json")
+            val tampered = JSONObject(cacheFile.readText()).apply {
+                put("version", "9999")
+            }
             cacheFile.writeText(tampered.toString())
 
             val offlineApi = RecordingTrustListApi(emptyMap()).apply { shouldFail = true }

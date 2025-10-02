@@ -9,6 +9,7 @@ import com.laurelid.data.VerificationResult
 import com.laurelid.db.DbModule
 import com.laurelid.db.VerificationDao
 import com.laurelid.db.VerificationEntity
+import com.laurelid.integrity.PlayIntegrityGate
 import com.laurelid.pos.TransactionManager
 import com.laurelid.util.LogManager
 import com.laurelid.util.Logger
@@ -32,14 +33,33 @@ open class VerificationOrchestrator @Inject constructor(
     private val logManager: LogManager,
     private val transactionManager: TransactionManager,
     private val dispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val verificationDao: VerificationDao = DbModule.provideVerificationDao(context.applicationContext),
 ) : VerificationExecutor {
-    private val verificationDao: VerificationDao = DbModule.provideVerificationDao(context)
+    private val appContext = context.applicationContext
 
     override suspend fun verify(
         parsedMdoc: ParsedMdoc,
         config: AdminConfig,
         demoPayloadUsed: Boolean,
     ): VerificationResult {
+        val integrityAllowed = PlayIntegrityGate.isAdminAccessAllowed(appContext)
+        if (!integrityAllowed) {
+            Logger.w(TAG, "Blocking verification due to Play Integrity verdict")
+            val failure = VerificationResult(
+                success = false,
+                ageOver21 = parsedMdoc.ageOver21,
+                issuer = null,
+                subjectDid = null,
+                docType = parsedMdoc.docType,
+                error = VerifierService.ERROR_DEVICE_INTEGRITY,
+                trustStale = null,
+            )
+            val sanitized = sanitizeResult(failure)
+            persistResult(sanitized, config, demoPayloadUsed)
+            transactionManager.record(sanitized)
+            return sanitized
+        }
+
         val refreshMillis = TimeUnit.MINUTES.toMillis(config.trustRefreshIntervalMinutes.toLong())
 
         val rawResult = runCatching {

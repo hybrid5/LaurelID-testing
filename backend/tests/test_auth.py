@@ -178,7 +178,16 @@ def reset_auth(monkeypatch):
     auth.reset_auth_state()
 
 
-def _build_token(private_key, *, nonce="abc", issuer=None, audience=None, lifetime_seconds=300, kid="primary"):
+def _build_token(
+    private_key,
+    *,
+    nonce="abc",
+    issuer=None,
+    audience=None,
+    lifetime_seconds=300,
+    kid="primary",
+    integrity_verdict="MEETS_DEVICE_INTEGRITY",
+):
     now = datetime.now(timezone.utc)
     payload = {
         "iss": issuer or os.environ["INGESTION_JWT_ISSUER"],
@@ -187,6 +196,8 @@ def _build_token(private_key, *, nonce="abc", issuer=None, audience=None, lifeti
         "nonce": nonce,
         "sub": "integration-test",
     }
+    if integrity_verdict is not None:
+        payload["device_integrity"] = integrity_verdict
     header = {"alg": "RS256", "typ": "JWT", "kid": kid}
     segments = [_b64encode(json.dumps(header).encode()), _b64encode(json.dumps(payload).encode())]
     segments.append(_b64encode(f"signed-with-{kid}".encode()))
@@ -233,3 +244,25 @@ def test_verify_jwt_supports_key_rotation(reset_auth):
 
     auth.verify_jwt(HTTPAuthorizationCredentials(scheme="Bearer", credentials=first_token))
     auth.verify_jwt(HTTPAuthorizationCredentials(scheme="Bearer", credentials=second_token))
+
+
+def test_verify_jwt_rejects_failed_integrity(reset_auth):
+    private_keys = reset_auth
+    token = _build_token(private_keys["primary"], integrity_verdict="FAILED_DEVICE_INTEGRITY")
+    credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
+
+    with pytest.raises(HTTPException) as excinfo:
+        auth.verify_jwt(credentials)
+    assert excinfo.value.status_code == 401
+    assert "integrity" in excinfo.value.detail.lower()
+
+
+def test_verify_jwt_requires_integrity_claim(reset_auth):
+    private_keys = reset_auth
+    token = _build_token(private_keys["primary"], integrity_verdict=None)
+    credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
+
+    with pytest.raises(HTTPException) as excinfo:
+        auth.verify_jwt(credentials)
+    assert excinfo.value.status_code == 401
+    assert "integrity" in excinfo.value.detail.lower()

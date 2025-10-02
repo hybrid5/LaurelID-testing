@@ -13,6 +13,8 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 ALGORITHM = "RS256"
 REQUIRED_CLAIMS = ("exp", "iss", "aud", "nonce")
+INTEGRITY_CLAIM = "device_integrity"
+REQUIRED_INTEGRITY_VERDICT = "MEETS_DEVICE_INTEGRITY"
 auth_scheme = HTTPBearer(auto_error=False)
 
 
@@ -107,6 +109,13 @@ def verify_jwt(credentials: HTTPAuthorizationCredentials = Depends(auth_scheme))
     exp = payload.get("exp")
     if nonce is None or exp is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing claim")
+
+    verdict = payload.get(INTEGRITY_CLAIM)
+    if verdict != REQUIRED_INTEGRITY_VERDICT:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Device integrity verification failed",
+        )
 
     expires_at = datetime.fromtimestamp(exp, tz=timezone.utc)
     try:

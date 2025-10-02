@@ -11,6 +11,7 @@ import java.time.temporal.ChronoUnit
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
 import org.bouncycastle.jce.provider.BouncyCastleProvider
@@ -69,6 +70,8 @@ class WalletVerifierTest {
 
             assertFalse(result.success)
             assertEquals(VerifierService.ERROR_DOC_EXPIRED, result.error)
+            assertNull(result.issuer)
+            assertNull(result.subjectDid)
         }
     }
 
@@ -92,6 +95,8 @@ class WalletVerifierTest {
 
             assertFalse(result.success)
             assertEquals(VerifierService.ERROR_DEVICE_DATA_TAMPERED, result.error)
+            assertNull(result.issuer)
+            assertNull(result.subjectDid)
         }
     }
 
@@ -115,6 +120,8 @@ class WalletVerifierTest {
 
             assertFalse(result.success)
             assertEquals(VerifierService.ERROR_INVALID_DEVICE_SIGNATURE, result.error)
+            assertNull(result.issuer)
+            assertNull(result.subjectDid)
         }
     }
 
@@ -137,6 +144,8 @@ class WalletVerifierTest {
 
             assertFalse(result.success)
             assertEquals(VerifierService.ERROR_UNTRUSTED_ISSUER, result.error)
+            assertNull(result.issuer)
+            assertNull(result.subjectDid)
         }
     }
 }

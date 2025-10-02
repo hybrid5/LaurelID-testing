@@ -1,6 +1,7 @@
 package com.laurelid.util
 
 import android.content.Context
+import android.util.Base64
 import androidx.annotation.VisibleForTesting
 import androidx.security.crypto.EncryptedFile
 import androidx.security.crypto.MasterKey
@@ -10,6 +11,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import java.io.IOException
 import java.security.GeneralSecurityException
+import java.security.MessageDigest
 import java.time.Clock
 import java.util.concurrent.TimeUnit
 import javax.inject.Singleton
@@ -57,7 +59,8 @@ open class LogManager constructor(
                 put("venueId", REDACTED_VENUE_ID)
                 put("success", JSONObject.NULL)
                 put("ageOver21", JSONObject.NULL)
-                put("error", result.error)
+                val errorHash = result.error?.let { hashError(it) }
+                put("error", errorHash ?: JSONObject.NULL)
                 put("demoMode", JSONObject.NULL)
             }.toString()
 
@@ -158,5 +161,11 @@ open class LogManager constructor(
         private val TIMESTAMP_REGEX = Regex("\"ts\":(\\d+)")
         private const val TAG = "LogManager"
         private const val REDACTED_VENUE_ID = "REDACTED"
+    }
+
+    @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
+    internal open fun hashError(error: String): String {
+        val digest = MessageDigest.getInstance("SHA-256").digest(error.toByteArray(Charsets.UTF_8))
+        return Base64.encodeToString(digest, Base64.NO_WRAP)
     }
 }

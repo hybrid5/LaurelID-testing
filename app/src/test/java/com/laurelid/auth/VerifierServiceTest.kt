@@ -14,6 +14,7 @@ import java.util.Base64
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
 import org.bouncycastle.jce.provider.BouncyCastleProvider
@@ -78,6 +79,8 @@ class VerifierServiceTest {
 
             assertFalse(result.success)
             assertEquals(VerifierService.ERROR_TRUST_LIST_UNAVAILABLE, result.error)
+            assertNull(result.issuer)
+            assertNull(result.subjectDid)
         }
     }
 
@@ -107,6 +110,8 @@ class VerifierServiceTest {
 
             assertFalse(result.success)
             assertEquals(VerifierService.ERROR_TRUST_LIST_UNAVAILABLE, result.error)
+            assertNull(result.issuer)
+            assertNull(result.subjectDid)
         }
     }
 
@@ -161,6 +166,8 @@ class VerifierServiceTest {
 
             assertFalse(result.success)
             assertEquals(VerifierService.ERROR_INVALID_DEVICE_SIGNATURE, result.error)
+            assertNull(result.issuer)
+            assertNull(result.subjectDid)
         }
     }
 
@@ -184,6 +191,8 @@ class VerifierServiceTest {
 
             assertFalse(result.success)
             assertEquals(VerifierService.ERROR_ISSUER_AUTH_CHAIN_MISMATCH, result.error)
+            assertNull(result.issuer)
+            assertNull(result.subjectDid)
         }
     }
 
@@ -210,6 +219,8 @@ class VerifierServiceTest {
 
             assertFalse(result.success)
             assertEquals(VerifierService.ERROR_CERTIFICATE_REVOKED, result.error)
+            assertNull(result.issuer)
+            assertNull(result.subjectDid)
         }
     }
 
@@ -233,6 +244,8 @@ class VerifierServiceTest {
 
             assertFalse(result.success)
             assertEquals(VerifierService.ERROR_TRUST_ANCHOR_EXPIRED, result.error)
+            assertNull(result.issuer)
+            assertNull(result.subjectDid)
         }
     }
 }

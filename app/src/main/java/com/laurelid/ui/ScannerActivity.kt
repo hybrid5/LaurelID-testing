@@ -43,6 +43,7 @@ import com.laurelid.R
 import com.laurelid.auth.ISO18013Parser
 import com.laurelid.auth.MdocParseException
 import com.laurelid.auth.ParsedMdoc // Ensure this class exists and has necessary fields
+import com.laurelid.auth.VerifierService
 import com.laurelid.auth.WalletVerifier
 import com.laurelid.config.AdminConfig
 import com.laurelid.config.AdminPinManager
@@ -562,16 +563,7 @@ class ScannerActivity : AppCompatActivity() {
                 verifier.verify(parsedMdoc, refreshMillis)
             }.getOrElse { throwable ->
                 Logger.e(TAG, "Verification failed with exception", throwable)
-                // Assuming ParsedMdoc has these fields, or they are nullable/defaulted in VerificationResult
-                VerificationResult(
-                    success = false,
-                    ageOver21 = parsedMdoc.ageOver21, // This might not be known if parsing failed before this point
-                    issuer = parsedMdoc.issuer,       // Same as above
-                    subjectDid = parsedMdoc.subjectDid, // Same as above
-                    docType = parsedMdoc.docType,       // Same as above
-                    error = throwable.message ?: "Unknown verification error",
-                    trustStale = null,
-                )
+                buildClientFailureResult(parsedMdoc)
             }
 
             persistResult(verificationResult, configSnapshot, demoPayloadUsed)
@@ -802,6 +794,19 @@ class ScannerActivity : AppCompatActivity() {
         @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
         internal fun shouldEnterLockTask(config: AdminConfig, lockTaskPermitted: Boolean): Boolean {
             return !config.demoMode && lockTaskPermitted
+        }
+
+        @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
+        internal fun buildClientFailureResult(parsedMdoc: ParsedMdoc): VerificationResult {
+            return VerificationResult(
+                success = false,
+                ageOver21 = parsedMdoc.ageOver21,
+                issuer = null,
+                subjectDid = null,
+                docType = parsedMdoc.docType,
+                error = VerifierService.ERROR_CLIENT_EXCEPTION,
+                trustStale = null,
+            )
         }
     }
 }

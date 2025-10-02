@@ -62,6 +62,8 @@ class VerifierServiceTelemetryTest {
         val result = service.verify(parsed, maxCacheAgeMillis = 0L)
 
         assertFalse(result.success)
+        assertNull(result.issuer)
+        assertNull(result.subjectDid)
         val events = exporter.snapshot()
         assertEquals(1, events.size)
         val event = events.first()

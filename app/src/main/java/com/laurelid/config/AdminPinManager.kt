@@ -82,6 +82,7 @@ class AdminPinManager(
         storage.pinHash = hash
         storage.failedAttempts = 0
         storage.lockoutUntilEpochMillis = 0L
+        storage.lastRotationEpochMillis = clock.millis()
     }
 
     fun clearPin() {
@@ -89,6 +90,7 @@ class AdminPinManager(
         storage.pinHash = null
         storage.failedAttempts = 0
         storage.lockoutUntilEpochMillis = 0L
+        storage.lastRotationEpochMillis = 0L
     }
 
     private fun computeLockoutDuration(failures: Int): Long {
@@ -97,6 +99,13 @@ class AdminPinManager(
         val multiplier = 1L shl exponent.coerceAtMost(LOCKOUT_EXPONENT_MAX)
         val raw = LOCKOUT_BASE_MILLIS * multiplier
         return raw.coerceAtMost(MAX_LOCKOUT_MILLIS)
+    }
+
+    fun needsRotation(): Boolean {
+        val last = storage.lastRotationEpochMillis
+        if (last <= 0L) return true
+        val ninetyDays = TimeUnit.DAYS.toMillis(90)
+        return clock.millis() - last >= ninetyDays
     }
 
     private fun hash(pin: String, salt: ByteArray): String {
@@ -126,6 +135,7 @@ interface AdminPinStorage {
     var pinSalt: String?
     var failedAttempts: Int
     var lockoutUntilEpochMillis: Long
+    var lastRotationEpochMillis: Long
 }
 
 class EncryptedAdminPinStorage(context: Context) : AdminPinStorage {
@@ -171,10 +181,17 @@ class EncryptedAdminPinStorage(context: Context) : AdminPinStorage {
             prefs.edit { putLong(KEY_LOCKOUT_UNTIL, value) }
         }
 
+    override var lastRotationEpochMillis: Long
+        get() = prefs.getLong(KEY_ROTATED_AT, 0L)
+        set(value) {
+            prefs.edit { putLong(KEY_ROTATED_AT, value) }
+        }
+
     companion object {
         private const val KEY_PIN_HASH = "pin_hash"
         private const val KEY_PIN_SALT = "pin_salt"
         private const val KEY_FAILED_ATTEMPTS = "failed_attempts"
         private const val KEY_LOCKOUT_UNTIL = "lockout_until"
+        private const val KEY_ROTATED_AT = "rotated_at"
     }
 }

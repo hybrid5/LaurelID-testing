@@ -51,8 +51,24 @@ class FileStructuredEventExporterTest {
         assertEquals(172000L, parsed.getLong("timestamp_ms"))
         assertEquals(321L, parsed.getLong("scan_duration_ms"))
         assertTrue(parsed.getBoolean("success"))
-        assertEquals("OK", parsed.getString("reason_code"))
+        assertEquals(FileStructuredEventExporter.REDACTED_PLACEHOLDER, parsed.getString("reason_code"))
         assertEquals(false, parsed.getBoolean("trust_stale"))
+    }
+
+    @Test
+    fun `respects opt out of string redaction`() {
+        val event = StructuredEvent(
+            event = "verification_completed",
+            timestampMs = 172000L,
+            reasonCode = "OK",
+            redactStringPayloads = false,
+        )
+
+        exporter.export(event)
+
+        val outputFile = File(tempDir, FileStructuredEventExporter.EVENTS_FILE)
+        val parsed = JSONObject(outputFile.readLines().first())
+        assertEquals("OK", parsed.getString("reason_code"))
     }
 
     @Test

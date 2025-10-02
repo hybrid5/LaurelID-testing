@@ -13,6 +13,7 @@ class StructuredEventSchemaTest {
         val expected = listOf(
             "event",
             "reasonCode",
+            "redactStringPayloads",
             "scanDurationMs",
             "success",
             "timestampMs",
@@ -35,7 +36,8 @@ class StructuredEventSchemaTest {
             event.scanDurationMs == null &&
                 event.success == null &&
                 event.reasonCode == null &&
-                event.trustStale == null,
+                event.trustStale == null &&
+                event.redactStringPayloads,
         )
     }
 }

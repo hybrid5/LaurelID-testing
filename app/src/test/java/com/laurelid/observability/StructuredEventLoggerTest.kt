@@ -41,6 +41,7 @@ class StructuredEventLoggerTest {
         assertEquals(true, recorded.success)
         assertEquals("OK", recorded.reasonCode)
         assertEquals(false, recorded.trustStale)
+        assertEquals(true, recorded.redactStringPayloads)
     }
 
     @Test
@@ -59,5 +60,6 @@ class StructuredEventLoggerTest {
         assertNull(recorded.success)
         assertNull(recorded.reasonCode)
         assertNull(recorded.trustStale)
+        assertEquals(true, recorded.redactStringPayloads)
     }
 }

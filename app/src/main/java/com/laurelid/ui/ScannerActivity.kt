@@ -196,9 +196,10 @@ class ScannerActivity : AppCompatActivity() {
     override fun onPause() {
         super.onPause()
         if (nfcAdapter != null && !currentConfig.demoMode) {
-             disableForegroundDispatch()
+            disableForegroundDispatch()
         }
         stopDemoMode()
+        KioskWatchdogService.notifyScannerVisible(false)
         // No need to call stopCamera() explicitly if using ProcessCameraProvider,
         // as it's lifecycle-aware. It will unbind when the lifecycle stops.
     }

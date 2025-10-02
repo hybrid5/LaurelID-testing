@@ -16,6 +16,7 @@ import com.laurelid.config.AdminPinManager
 import com.laurelid.config.ConfigManager
 import com.laurelid.config.EncryptedAdminPinStorage
 import com.laurelid.integrity.PlayIntegrityGate
+import com.laurelid.kiosk.KioskWatchdogService
 import com.laurelid.network.TrustListEndpointPolicy
 import com.laurelid.util.KioskUtil
 import kotlinx.coroutines.launch
@@ -46,6 +47,18 @@ class AdminActivity : AppCompatActivity() {
                 bindConfig()
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        KioskUtil.prepareForLockscreen(this)
+        KioskUtil.setImmersiveMode(window)
+        KioskWatchdogService.notifyScannerVisible(true)
+    }
+
+    override fun onPause() {
+        KioskWatchdogService.notifyScannerVisible(false)
+        super.onPause()
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {

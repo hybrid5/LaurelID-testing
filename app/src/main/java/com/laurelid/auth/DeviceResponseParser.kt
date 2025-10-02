@@ -9,9 +9,12 @@ import com.upokecenter.cbor.CBORType
 import org.json.JSONArray
 import org.json.JSONException
 import org.json.JSONObject
+import java.net.URI
+import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import java.util.Base64
+import java.util.Locale
 import java.util.UUID
 
 class DeviceResponseParser(
@@ -30,11 +33,65 @@ class DeviceResponseParser(
     }
 
     private fun parse(bytes: ByteArray, formatHint: DeviceResponseFormat?): ParsedMdoc {
-        val format = formatHint ?: detectFormat(bytes)
+        val (payload, uriFormatHint) = decodeMdocUriIfPresent(bytes)
+        val format = formatHint ?: uriFormatHint ?: detectFormat(payload)
         return when (format) {
-            DeviceResponseFormat.COSE_SIGN1 -> parseCose(bytes)
-            DeviceResponseFormat.SD_JWT -> parseSdJwt(bytes)
+            DeviceResponseFormat.COSE_SIGN1 -> parseCose(payload)
+            DeviceResponseFormat.SD_JWT -> parseSdJwt(payload)
         }
+    }
+
+    private fun decodeMdocUriIfPresent(bytes: ByteArray): Pair<ByteArray, DeviceResponseFormat?> {
+        val text = runCatching { String(bytes, StandardCharsets.UTF_8) }.getOrNull()?.trim()
+            ?: return bytes to null
+        if (!text.startsWith(MDOC_URI_PREFIX, ignoreCase = true)) {
+            return bytes to null
+        }
+
+        val uri = try {
+            URI(text)
+        } catch (error: IllegalArgumentException) {
+            throw MdocParseException(MdocError.InvalidUri("Invalid mdoc device response URI"), error)
+        }
+
+        val params = parseQueryParameters(uri.rawQuery)
+        val encodedPayload = DEVICE_RESPONSE_PARAM_KEYS.firstNotNullOfOrNull { params[it] }
+            ?: throw MdocParseException(
+                MdocError.MalformedDeviceResponse("mdoc URI missing device response payload")
+            )
+        val decodedPayload = try {
+            base64UrlDecoder.decode(encodedPayload)
+        } catch (error: IllegalArgumentException) {
+            throw MdocParseException(
+                MdocError.MalformedDeviceResponse("mdoc URI payload was not valid base64url"),
+                error
+            )
+        }
+
+        val formatLabel = FORMAT_PARAM_KEYS.firstNotNullOfOrNull { params[it] }
+        val uriFormat = formatLabel?.let { DeviceResponseFormat.fromLabel(it) }
+
+        return decodedPayload to uriFormat
+    }
+
+    private fun parseQueryParameters(rawQuery: String?): Map<String, String> {
+        if (rawQuery.isNullOrBlank()) return emptyMap()
+        return rawQuery.split('&').mapNotNull { component ->
+            if (component.isBlank()) {
+                null
+            } else {
+                val parts = component.split('=', limit = 2)
+                val key = decodeComponent(parts[0])
+                val value = if (parts.size > 1) decodeComponent(parts[1]) else ""
+                key.lowercase(Locale.ROOT) to value
+            }
+        }.toMap()
+    }
+
+    private fun decodeComponent(component: String): String = try {
+        URLDecoder.decode(component, StandardCharsets.UTF_8.name())
+    } catch (_: IllegalArgumentException) {
+        component
     }
 
     private fun detectFormat(bytes: ByteArray): DeviceResponseFormat {
@@ -262,5 +319,8 @@ class DeviceResponseParser(
     companion object {
         private const val TAG = "DeviceResponseParser"
         private const val DEFAULT_NAMESPACE = "org.iso.18013.5.1"
+        private const val MDOC_URI_PREFIX = "mdoc://"
+        private val DEVICE_RESPONSE_PARAM_KEYS = listOf("dr", "deviceResponse", "response")
+        private val FORMAT_PARAM_KEYS = listOf("type", "format", "responseType")
     }
 }

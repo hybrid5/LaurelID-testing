@@ -205,16 +205,17 @@ open class VerifierService constructor(
         error: String,
         docTypeOverride: String? = null,
     ): VerificationResult {
+        val sanitizedError = sanitizeReasonCode(error)
         val result = VerificationResult(
             success = false,
             ageOver21 = parsed.ageOver21,
             issuer = null,
             subjectDid = null,
             docType = docTypeOverride ?: parsed.docType,
-            error = error,
+            error = sanitizedError,
             trustStale = trustStale,
         )
-        logVerificationEvent(startTimeMs, success = false, reasonCode = error, trustStale = trustStale)
+        logVerificationEvent(startTimeMs, success = false, reasonCode = sanitizedError, trustStale = trustStale)
         return result
     }
 
@@ -665,6 +666,7 @@ open class VerifierService constructor(
         private const val P256_COORDINATE_LENGTH = 32
         private const val VERIFICATION_EVENT = "verification_completed"
         private const val REASON_OK = "OK"
+        private val REASON_CODE_REGEX = Regex("^[A-Z0-9_]+$")
 
         const val ERROR_NOT_IMPLEMENTED = "NOT_IMPLEMENTED"
         const val ERROR_TRUST_LIST_UNAVAILABLE = "TRUST_LIST_UNAVAILABLE"
@@ -686,5 +688,11 @@ open class VerifierService constructor(
         const val ERROR_INVALID_DEVICE_SIGNATURE = "INVALID_DEVICE_SIGNATURE"
         const val ERROR_DEVICE_DATA_MISMATCH = "DEVICE_DATA_MISMATCH"
         const val ERROR_CLIENT_EXCEPTION = "CLIENT_EXCEPTION"
+
+        internal fun sanitizeReasonCode(reason: String?): String? {
+            if (reason.isNullOrBlank()) return null
+            val normalized = reason.uppercase(Locale.US)
+            return if (REASON_CODE_REGEX.matches(normalized)) normalized else ERROR_CLIENT_EXCEPTION
+        }
     }
 }

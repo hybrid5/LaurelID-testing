@@ -29,6 +29,7 @@ open class TrustListRepository(
     private val retryPolicy: RetryPolicy = RetryPolicy(),
     private val manifestVerifier: TrustListManifestVerifier,
     private val cacheStorage: TrustListCacheStorage = PlainTextTrustListCacheStorage(File(cacheDir, CACHE_FILE_NAME)),
+    private val seedLoader: TrustListSeedLoader? = null,
 ) {
 
     data class RetryPolicy(
@@ -57,12 +58,14 @@ open class TrustListRepository(
         val freshLifetimeMillis: Long,
         val staleLifetimeMillis: Long,
         val revokedSerialNumbers: Set<String>,
+        val source: CacheSource,
     )
 
-    private data class VerifiedPayload(
-        val response: TrustListResponse,
-        val manifest: TrustListManifestVerifier.VerifiedManifest,
-    )
+    private enum class CacheSource {
+        NETWORK,
+        DISK,
+        SEED,
+    }
 
     private val mutex = Mutex()
     @Volatile
@@ -88,7 +91,7 @@ open class TrustListRepository(
         maxAgeMillis: Long,
         staleTtlMillis: Long = defaultStaleTtlMillis,
     ): Snapshot = mutex.withLock {
-        val current = ensureCacheLoaded()
+        val current = ensureCacheLoaded(nowMillis)
         val age = current?.let { nowMillis - it.fetchedAtMillis } ?: 0L
         val freshDuration = current?.let { combineDuration(maxAgeMillis, it.freshLifetimeMillis) }
         val isFresh = current != null && freshDuration != null &&
@@ -109,6 +112,7 @@ open class TrustListRepository(
                 freshLifetimeMillis = verified.freshLifetimeMillis,
                 staleLifetimeMillis = verified.staleLifetimeMillis,
                 revokedSerialNumbers = verified.revokedSerialNumbers,
+                source = CacheSource.NETWORK,
             )
             memoryCache = updatedState
             persist(nowMillis, remote)
@@ -117,9 +121,16 @@ open class TrustListRepository(
         } catch (throwable: Throwable) {
             Logger.e(TAG, "Failed to refresh trust list, falling back to cache", throwable)
             if (current != null) {
-                val fallbackFresh = freshDuration ?: combineDuration(maxAgeMillis, current.freshLifetimeMillis)
-                val staleDuration = combineDuration(staleTtlMillis, current.staleLifetimeMillis)
+                val fallbackFresh = when (current.source) {
+                    CacheSource.SEED -> 0L
+                    else -> freshDuration ?: combineDuration(maxAgeMillis, current.freshLifetimeMillis)
+                }
+                val staleDuration = when (current.source) {
+                    CacheSource.SEED -> Long.MAX_VALUE
+                    else -> combineDuration(staleTtlMillis, current.staleLifetimeMillis)
+                }
                 val allowStale = when {
+                    current.source == CacheSource.SEED -> true
                     staleDuration == 0L && fallbackFresh == 0L -> true
                     staleDuration == 0L -> false
                     staleDuration == Long.MAX_VALUE -> true
@@ -141,19 +152,33 @@ open class TrustListRepository(
                 }
 
                 val stale = when {
+                    current.source == CacheSource.SEED -> true
                     fallbackFresh == Long.MAX_VALUE -> false
                     fallbackFresh == 0L -> true
                     else -> age > fallbackFresh
                 }
-                Logger.w(TAG, "Serving cached trust list (stale=$stale)")
-                StructuredEventLogger.log(
-                    event = TRUST_LIST_STALE_CACHE_SERVED_EVENT,
-                    timestampMs = System.currentTimeMillis(),
-                    success = !stale,
-                    reasonCode = if (stale) REASON_STALE_CACHE else REASON_CACHE_FRESH,
-                    trustStale = stale,
+                val event = if (current.source == CacheSource.SEED) {
+                    TRUST_LIST_SEED_SERVED_EVENT
+                } else {
+                    TRUST_LIST_STALE_CACHE_SERVED_EVENT
+                }
+                Logger.w(
+                    TAG,
+                    "Serving cached trust list (stale=$stale, source=${current.source})",
                 )
-                Snapshot(current.entries, current.revokedSerialNumbers, stale = stale)
+                StructuredEventLogger.log(
+                    event = event,
+                    timestampMs = System.currentTimeMillis(),
+                    success = current.source != CacheSource.SEED && !stale,
+                    reasonCode = when {
+                        current.source == CacheSource.SEED -> REASON_SEED_USED
+                        stale -> REASON_STALE_CACHE
+                        else -> REASON_CACHE_FRESH
+                    },
+                    trustStale = current.source == CacheSource.SEED || stale,
+                )
+                val snapshotStale = current.source == CacheSource.SEED || stale
+                Snapshot(current.entries, current.revokedSerialNumbers, stale = snapshotStale)
             } else {
                 throw throwable
             }
@@ -162,6 +187,9 @@ open class TrustListRepository(
 
     open fun cached(nowMillis: Long = System.currentTimeMillis()): Snapshot? {
         val state = memoryCache ?: return null
+        if (state.source == CacheSource.SEED) {
+            return Snapshot(state.entries, state.revokedSerialNumbers, stale = true)
+        }
         val age = nowMillis - state.fetchedAtMillis
         val freshDuration = combineDuration(defaultMaxAgeMillis, state.freshLifetimeMillis)
         val staleDuration = combineDuration(defaultStaleTtlMillis, state.staleLifetimeMillis)
@@ -239,7 +267,7 @@ open class TrustListRepository(
         }
     }
 
-    private suspend fun fetchTrustListWithRetry(): VerifiedPayload {
+    private suspend fun fetchTrustListWithRetry(): VerifiedTrustListPayload {
         var attempt = 0
         var nextDelayMillis = retryPolicy.initialDelayMillis
         var lastError: Throwable? = null
@@ -263,7 +291,7 @@ open class TrustListRepository(
                 if (verified.freshLifetimeMillis == 0L && verified.staleLifetimeMillis == 0L) {
                     Logger.w(TAG, "Trust list manifest set zero cache lifetime; treating as immediate expiry")
                 }
-                return VerifiedPayload(response = response, manifest = verified)
+                return VerifiedTrustListPayload(response = response, manifest = verified)
             } catch (throwable: Throwable) {
                 lastError = throwable
                 val duration = System.currentTimeMillis() - attemptStart
@@ -305,7 +333,7 @@ open class TrustListRepository(
         throw lastError ?: IllegalStateException("Unable to refresh trust list")
     }
 
-    private suspend fun ensureCacheLoaded(): CacheState? {
+    private suspend fun ensureCacheLoaded(nowMillis: Long): CacheState? {
         val existing = memoryCache
         if (existing != null) {
             return existing
@@ -314,11 +342,19 @@ open class TrustListRepository(
         val diskState = readFromDisk()
         if (diskState != null) {
             memoryCache = diskState
+            return diskState
         }
-        return diskState
+
+        val seedState = loadSeed(nowMillis)
+        if (seedState != null) {
+            memoryCache = seedState
+            return seedState
+        }
+
+        return null
     }
 
-    private suspend fun persist(fetchedAtMillis: Long, payload: VerifiedPayload) {
+    private suspend fun persist(fetchedAtMillis: Long, payload: VerifiedTrustListPayload) {
         val currentBaseUrl = baseUrl
         withContext(ioDispatcher) {
             try {
@@ -450,10 +486,33 @@ open class TrustListRepository(
                 freshLifetimeMillis = verified.freshLifetimeMillis,
                 staleLifetimeMillis = verified.staleLifetimeMillis,
                 revokedSerialNumbers = verified.revokedSerialNumbers,
+                source = CacheSource.DISK,
             )
         } catch (throwable: Throwable) {
             Logger.e(TAG, "Failed to read trust list cache from disk", throwable)
             null
+        }
+    }
+
+    private suspend fun loadSeed(nowMillis: Long): CacheState? {
+        val loader = seedLoader ?: return null
+        return withContext(ioDispatcher) {
+            try {
+                val seed = loader.load(nowMillis, baseUrl)
+                seed?.let {
+                    CacheState(
+                        entries = it.payload.manifest.entries,
+                        fetchedAtMillis = it.generatedAtMillis,
+                        freshLifetimeMillis = 0L,
+                        staleLifetimeMillis = it.staleTtlMillis,
+                        revokedSerialNumbers = it.payload.manifest.revokedSerialNumbers,
+                        source = CacheSource.SEED,
+                    )
+                }
+            } catch (throwable: Throwable) {
+                Logger.e(TAG, "Unable to load seed trust list", throwable)
+                null
+            }
         }
     }
     }
@@ -492,6 +551,7 @@ open class TrustListRepository(
         private const val TRUST_LIST_REFRESH_EVENT = "trust_list_refresh"
         private const val TRUST_LIST_REFRESH_RETRY_EVENT = "trust_list_refresh_retry"
         private const val TRUST_LIST_STALE_CACHE_SERVED_EVENT = "trust_list_stale_cache_served"
+        private const val TRUST_LIST_SEED_SERVED_EVENT = "trust_list_seed_served"
         private const val TRUST_LIST_CACHE_EXPIRED_EVENT = "trust_list_cache_expired"
         private const val TRUST_LIST_CACHE_VALIDATION_FAILED_EVENT = "trust_list_cache_validation_failed"
         private const val REASON_OK = "OK"
@@ -502,6 +562,8 @@ open class TrustListRepository(
         private const val REASON_STALE_EXPIRED = "STALE_TTL_EXCEEDED"
         private const val REASON_CHECKSUM_MISMATCH = "CHECKSUM_MISMATCH"
         private const val REASON_VERSION_MISMATCH = "VERSION_MISMATCH"
+        private const val REASON_SEED_USED = "SEED_FALLBACK"
+        private const val DEFAULT_SEED_ASSET_PATH = "trust_seed.json"
 
         fun create(
             context: Context,
@@ -515,6 +577,8 @@ open class TrustListRepository(
             val sanitizedBaseUrl = TrustListEndpointPolicy.requireEndpointAllowed(baseUrl)
             val anchors = TrustListManifestVerifier.fromBase64Anchors(BuildConfig.TRUST_LIST_MANIFEST_ROOT_CERT)
             val manifestVerifier = TrustListManifestVerifier(anchors)
+            val seedStorage = AssetTrustListSeedStorage(context, DEFAULT_SEED_ASSET_PATH)
+            val seedLoader = TrustListSeedLoader(seedStorage, manifestVerifier)
             return TrustListRepository(
                 api = api,
                 cacheDir = directory,
@@ -524,6 +588,7 @@ open class TrustListRepository(
                 initialBaseUrl = sanitizedBaseUrl,
                 manifestVerifier = manifestVerifier,
                 cacheStorage = EncryptedTrustListCacheStorage(context, cacheFile),
+                seedLoader = seedLoader,
             )
         }
     }

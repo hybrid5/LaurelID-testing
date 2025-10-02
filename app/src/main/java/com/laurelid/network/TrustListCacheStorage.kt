@@ -81,3 +81,32 @@ internal class EncryptedTrustListCacheStorage(
         private const val TAG = "EncryptedTrustCache"
     }
 }
+
+internal class AssetTrustListSeedStorage(
+    private val context: Context,
+    private val assetPath: String,
+) : TrustListCacheStorage {
+
+    override fun read(): String? {
+        return try {
+            context.assets.open(assetPath).bufferedReader().use { reader ->
+                reader.readText()
+            }
+        } catch (throwable: Throwable) {
+            Logger.w(TAG, "Unable to read seed trust list asset ($assetPath)", throwable)
+            null
+        }
+    }
+
+    override fun write(contents: String) {
+        throw UnsupportedOperationException("Seed asset is read-only")
+    }
+
+    override fun delete() {
+        // Seed assets are immutable; nothing to delete.
+    }
+
+    companion object {
+        private const val TAG = "TrustSeedAsset"
+    }
+}

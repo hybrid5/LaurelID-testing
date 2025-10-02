@@ -15,6 +15,7 @@ import androidx.constraintlayout.widget.ConstraintLayout
 import androidx.core.content.ContextCompat
 import com.laurelid.R
 import com.laurelid.data.VerificationResult // Ensure this is Parcelable and has the necessary fields
+import com.laurelid.kiosk.KioskWatchdogService
 import com.laurelid.util.KioskUtil
 import com.laurelid.util.Logger // Added for logging potential issues
 
@@ -51,6 +52,18 @@ class ResultActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
         handler.removeCallbacksAndMessages(null)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        KioskUtil.prepareForLockscreen(this)
+        KioskUtil.setImmersiveMode(window)
+        KioskWatchdogService.notifyScannerVisible(true)
+    }
+
+    override fun onPause() {
+        KioskWatchdogService.notifyScannerVisible(false)
+        super.onPause()
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {

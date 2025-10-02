@@ -2,7 +2,7 @@
 set -euo pipefail
 
 PACKAGE="com.laurelid"
-ADMIN_COMPONENT="com.laurelid/.DeviceAdminReceiver"
+ADMIN_COMPONENT="com.laurelid/.kiosk.LaurelIdDeviceAdminReceiver"
 LAUNCHER_ACTIVITY="com.laurelid/.ui.ScannerActivity"
 ADB_BIN="${ADB:-adb}"
 
@@ -25,10 +25,10 @@ fi
 run_adb shell dpm set-device-owner "${ADMIN_COMPONENT}"
 
 # Allow the kiosk app to enter lock task (screen pinning) mode automatically.
-run_adb shell dpm set-lock-task-packages ${PACKAGE} ${PACKAGE}
+run_adb shell dpm set-lock-task-packages "${ADMIN_COMPONENT}" ${PACKAGE}
 
 # Whitelist system surfaces/dialogs needed for camera prompts, intents, etc.
-run_adb shell dpm set-lock-task-features ${PACKAGE} KEYGUARD SYSTEM_INFO NOTIFICATIONS GLOBAL_ACTIONS
+run_adb shell dpm set-lock-task-features "${ADMIN_COMPONENT}" KEYGUARD SYSTEM_INFO NOTIFICATIONS GLOBAL_ACTIONS
 
 # Ensure Android treats the scanner activity as the launcher so it boots on startup.
 run_adb shell cmd package set-home-activity "${LAUNCHER_ACTIVITY}"

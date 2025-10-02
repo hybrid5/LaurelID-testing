@@ -1,6 +1,7 @@
 package com.laurelid
 
 import android.app.Application
+import com.laurelid.kiosk.KioskDeviceOwnerManager
 import com.laurelid.kiosk.KioskWatchdogService
 import com.laurelid.observability.IEventExporter
 import com.laurelid.observability.StructuredEventLogger
@@ -28,6 +29,7 @@ class LaurelIdApp : Application() {
         super.onCreate()
         Logger.i("App", "LaurelID kiosk application initialized")
         StructuredEventLogger.registerExporter(eventExporter)
+        KioskDeviceOwnerManager.enforcePolicies(this)
         KioskWatchdogService.start(this)
         appScope.launch {
             logManager.purgeLegacyLogs()

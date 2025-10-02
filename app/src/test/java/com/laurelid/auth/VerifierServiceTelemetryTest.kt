@@ -8,6 +8,7 @@ import com.laurelid.observability.InMemoryStructuredEventExporter
 import com.laurelid.observability.StructuredEventLogger
 import java.io.File
 import java.time.Clock
+import java.util.Base64
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -73,5 +74,49 @@ class VerifierServiceTelemetryTest {
         assertNull(event.trustStale)
         assertNotNull(event.scanDurationMs)
         assertTrue((event.scanDurationMs ?: 0L) >= 0L)
+    }
+
+    @Test
+    fun `telemetry records stale trust snapshot flag`() = runBlocking {
+        exporter.clear()
+        val staleRepository = object : TrustListRepository(
+            api = object : TrustListApi {
+                override suspend fun getTrustList(): TrustListResponse =
+                    TrustListTestAuthority.signedResponse(emptyMap())
+            },
+            cacheDir = cacheDir,
+            defaultMaxAgeMillis = 0L,
+            defaultStaleTtlMillis = 0L,
+            ioDispatcher = Dispatchers.Unconfined,
+            manifestVerifier = TrustListTestAuthority.manifestVerifier(),
+        ) {
+            override suspend fun getOrRefresh(
+                nowMillis: Long,
+                maxAgeMillis: Long,
+                staleTtlMillis: Long,
+            ): Snapshot {
+                val anchor = Base64.getEncoder().encodeToString(TrustListTestAuthority.rootCertificate.encoded)
+                return Snapshot(mapOf("Issuer" to anchor), emptySet(), stale = true)
+            }
+        }
+
+        val service = VerifierService(staleRepository, Clock.systemUTC())
+        val parsed = ParsedMdoc(
+            subjectDid = "did:example:456",
+            docType = "org.iso.18013.5.1.mDL",
+            issuer = "Issuer",
+            ageOver21 = true,
+            issuerAuth = ByteArray(0),
+            deviceSignedEntries = emptyMap<String, Map<String, ByteArray>>(),
+            deviceSignedCose = ByteArray(0),
+        )
+
+        val result = service.verify(parsed, maxCacheAgeMillis = 0L)
+
+        assertFalse(result.success)
+        assertEquals(true, result.trustStale)
+
+        val events = exporter.snapshot().filter { it.event == "verification_completed" }
+        assertEquals(true, events.last().trustStale)
     }
 }

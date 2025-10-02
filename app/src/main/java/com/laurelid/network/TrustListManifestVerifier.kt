@@ -25,6 +25,7 @@ class TrustListManifestVerifier(
         val freshLifetimeMillis: Long,
         val staleLifetimeMillis: Long,
         val signingCertificates: List<X509Certificate>,
+        val manifestVersion: String?,
     )
 
     fun verify(response: TrustListResponse): VerifiedManifest {
@@ -66,6 +67,7 @@ class TrustListManifestVerifier(
         val revokedSerials = extractRevokedSerials(json)
         val freshLifetime = extractDuration(json, FRESH_LIFETIME_KEY)
         val staleLifetime = extractDuration(json, STALE_LIFETIME_KEY)
+        val version = extractVersion(json)
 
         return VerifiedManifest(
             entries = entries,
@@ -73,6 +75,7 @@ class TrustListManifestVerifier(
             freshLifetimeMillis = freshLifetime,
             staleLifetimeMillis = staleLifetime,
             signingCertificates = certificates,
+            manifestVersion = version,
         )
     }
 
@@ -114,6 +117,15 @@ class TrustListManifestVerifier(
             raw == Long.MIN_VALUE -> Long.MAX_VALUE
             raw <= 0L -> 0L
             else -> raw
+        }
+    }
+
+    private fun extractVersion(json: JSONObject): String? {
+        val raw = json.opt(VERSION_KEY) ?: return null
+        return when (raw) {
+            is Number -> raw.toLong().toString()
+            is String -> raw.trim().takeIf { it.isNotEmpty() }
+            else -> raw.toString().takeIf { it.isNotEmpty() }
         }
     }
 
@@ -192,6 +204,7 @@ class TrustListManifestVerifier(
         private const val REVOKED_SERIALS_KEY = "revokedSerialNumbers"
         private const val FRESH_LIFETIME_KEY = "freshLifetimeMillis"
         private const val STALE_LIFETIME_KEY = "staleLifetimeMillis"
+        private const val VERSION_KEY = "version"
         private const val DEFAULT_SIGNATURE_ALGORITHM = "SHA256withECDSA"
 
         fun fromBase64Anchors(raw: String?): Set<X509Certificate> {

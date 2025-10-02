@@ -5,6 +5,8 @@ import com.laurelid.BuildConfig
 import com.laurelid.observability.StructuredEventLogger
 import com.laurelid.util.Logger
 import java.io.File
+import java.security.MessageDigest
+import java.util.Base64
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -26,6 +28,7 @@ open class TrustListRepository(
     private val delayProvider: suspend (Long) -> Unit = { delay(it) },
     private val retryPolicy: RetryPolicy = RetryPolicy(),
     private val manifestVerifier: TrustListManifestVerifier,
+    private val cacheStorage: TrustListCacheStorage = PlainTextTrustListCacheStorage(File(cacheDir, CACHE_FILE_NAME)),
 ) {
 
     data class RetryPolicy(
@@ -62,8 +65,6 @@ open class TrustListRepository(
     )
 
     private val mutex = Mutex()
-    private val cacheFile: File = File(cacheDir, CACHE_FILE_NAME)
-
     @Volatile
     private var trustListApi: TrustListApi = api
 
@@ -337,8 +338,14 @@ open class TrustListRepository(
                         chainArray.put(certificate)
                     }
                     put(KEY_CERTIFICATE_CHAIN, chainArray)
+                    put(KEY_MANIFEST_CHECKSUM, computeChecksum(response.manifest))
+                    payload.manifest.manifestVersion?.let { version ->
+                        if (version.isNotBlank()) {
+                            put(KEY_MANIFEST_VERSION, version)
+                        }
+                    }
                 }
-                cacheFile.writeText(json.toString())
+                cacheStorage.write(json.toString())
             } catch (throwable: Throwable) {
                 Logger.e(TAG, "Unable to persist trust list cache", throwable)
             }
@@ -346,16 +353,17 @@ open class TrustListRepository(
     }
 
     private suspend fun readFromDisk(): CacheState? = withContext(ioDispatcher) {
-        if (!cacheFile.exists()) {
+        val raw = try {
+            cacheStorage.read()
+        } catch (throwable: Throwable) {
+            Logger.e(TAG, "Failed to read trust list cache from storage", throwable)
+            return@withContext null
+        }
+        if (raw.isNullOrBlank()) {
             return@withContext null
         }
 
         try {
-            val raw = cacheFile.readText()
-            if (raw.isBlank()) {
-                return@withContext null
-            }
-
             val json = JSONObject(raw)
             val fetchedAt = json.optLong(KEY_FETCHED_AT, -1L)
             if (fetchedAt <= 0L) {
@@ -373,6 +381,18 @@ open class TrustListRepository(
             val signature = json.optString(KEY_SIGNATURE, null)?.takeIf { it.isNotBlank() }
                 ?: return@withContext null
             val chainArray = json.optJSONArray(KEY_CERTIFICATE_CHAIN) ?: return@withContext null
+            val expectedChecksum = json.optString(KEY_MANIFEST_CHECKSUM, null)?.takeIf { it.isNotBlank() }
+                ?: run {
+                    Logger.w(TAG, "Stored trust list cache missing checksum; deleting cache")
+                    cacheStorage.delete()
+                    return@withContext null
+                }
+            val expectedVersion = json.optString(KEY_MANIFEST_VERSION, null)?.takeIf { it.isNotBlank() }
+                ?: run {
+                    Logger.w(TAG, "Stored trust list cache missing version; deleting cache")
+                    cacheStorage.delete()
+                    return@withContext null
+                }
             val certificateChain = mutableListOf<String>()
             for (index in 0 until chainArray.length()) {
                 val value = chainArray.optString(index, null)?.trim()
@@ -396,7 +416,31 @@ open class TrustListRepository(
                     success = false,
                     reasonCode = failureReasonCode(security),
                 )
-                cacheFile.delete()
+                cacheStorage.delete()
+                return@withContext null
+            }
+
+            val actualChecksum = computeChecksum(response.manifest)
+            if (expectedChecksum != actualChecksum) {
+                Logger.e(TAG, "Stored trust list checksum mismatch; deleting cache")
+                StructuredEventLogger.log(
+                    event = TRUST_LIST_CACHE_VALIDATION_FAILED_EVENT,
+                    success = false,
+                    reasonCode = REASON_CHECKSUM_MISMATCH,
+                )
+                cacheStorage.delete()
+                return@withContext null
+            }
+
+            val actualVersion = verified.manifestVersion
+            if (actualVersion == null || actualVersion != expectedVersion) {
+                Logger.e(TAG, "Stored trust list version mismatch; deleting cache")
+                StructuredEventLogger.log(
+                    event = TRUST_LIST_CACHE_VALIDATION_FAILED_EVENT,
+                    success = false,
+                    reasonCode = REASON_VERSION_MISMATCH,
+                )
+                cacheStorage.delete()
                 return@withContext null
             }
 
@@ -412,15 +456,20 @@ open class TrustListRepository(
             null
         }
     }
+    }
 
     private fun clearDiskCacheLocked() {
         try {
-            if (cacheFile.exists() && !cacheFile.delete()) {
-                cacheFile.writeText("")
-            }
+            cacheStorage.delete()
         } catch (throwable: Throwable) {
             Logger.e(TAG, "Unable to clear trust list cache on endpoint change", throwable)
         }
+    }
+
+    private fun computeChecksum(payload: String): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+            .digest(payload.toByteArray(Charsets.UTF_8))
+        return Base64.getEncoder().encodeToString(digest)
     }
 
     companion object {
@@ -432,6 +481,8 @@ open class TrustListRepository(
         private const val KEY_MANIFEST = "manifest"
         private const val KEY_SIGNATURE = "signature"
         private const val KEY_CERTIFICATE_CHAIN = "certificateChain"
+        private const val KEY_MANIFEST_CHECKSUM = "checksum"
+        private const val KEY_MANIFEST_VERSION = "version"
         private val DEFAULT_MAX_AGE_MILLIS = TimeUnit.HOURS.toMillis(12)
         private val DEFAULT_STALE_TTL_MILLIS = TimeUnit.DAYS.toMillis(3)
         internal const val DEFAULT_MAX_ATTEMPTS = 3
@@ -449,6 +500,8 @@ open class TrustListRepository(
         private const val REASON_STALE_CACHE = "STALE_CACHE"
         private const val REASON_CACHE_FRESH = "CACHE_FRESH"
         private const val REASON_STALE_EXPIRED = "STALE_TTL_EXCEEDED"
+        private const val REASON_CHECKSUM_MISMATCH = "CHECKSUM_MISMATCH"
+        private const val REASON_VERSION_MISMATCH = "VERSION_MISMATCH"
 
         fun create(
             context: Context,
@@ -458,6 +511,7 @@ open class TrustListRepository(
             baseUrl: String = TrustListEndpointPolicy.defaultBaseUrl,
         ): TrustListRepository {
             val directory = File(context.filesDir, CACHE_DIRECTORY)
+            val cacheFile = File(directory, CACHE_FILE_NAME)
             val sanitizedBaseUrl = TrustListEndpointPolicy.requireEndpointAllowed(baseUrl)
             val anchors = TrustListManifestVerifier.fromBase64Anchors(BuildConfig.TRUST_LIST_MANIFEST_ROOT_CERT)
             val manifestVerifier = TrustListManifestVerifier(anchors)
@@ -469,7 +523,32 @@ open class TrustListRepository(
                 ioDispatcher = ioDispatcher,
                 initialBaseUrl = sanitizedBaseUrl,
                 manifestVerifier = manifestVerifier,
+                cacheStorage = EncryptedTrustListCacheStorage(context, cacheFile),
             )
+        }
+    }
+}
+
+internal class PlainTextTrustListCacheStorage(private val file: File) : TrustListCacheStorage {
+    override fun read(): String? {
+        if (!file.exists()) {
+            return null
+        }
+        return file.readText()
+    }
+
+    override fun write(contents: String) {
+        file.parentFile?.let { parent ->
+            if (!parent.exists()) {
+                parent.mkdirs()
+            }
+        }
+        file.writeText(contents)
+    }
+
+    override fun delete() {
+        if (file.exists() && !file.delete()) {
+            file.writeText("")
         }
     }
 }

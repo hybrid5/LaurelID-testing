@@ -16,7 +16,7 @@ class Event(Base):
     event_type = Column(String(64), index=True, nullable=False)
     user_id = Column(String(255), nullable=True)
     payload = Column(Text, nullable=False, default="{}")
-    metadata = Column(Text, nullable=True)
+    metadata_json = Column("metadata", Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
     anonymized = Column(Boolean, default=False, nullable=False)
 

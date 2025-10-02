@@ -16,6 +16,7 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
+import org.json.JSONArray
 import org.json.JSONObject
 
 class TrustListRepositoryTest {
@@ -215,6 +216,42 @@ class TrustListRepositoryTest {
                 repository.getOrRefresh(nowMillis = 0L)
             }
             assertEquals(TrustListRepository.DEFAULT_MAX_ATTEMPTS, api.callCount)
+        }
+    }
+
+    @Test
+    fun `cold start offline uses bundled seed`() = runBlocking {
+        withTempDir { dir ->
+            val payload = mapOf("SEED" to "cert")
+            val response = TrustListTestAuthority.signedResponse(entries = payload)
+            val seedJson = JSONObject().apply {
+                put("generatedAt", 0L)
+                put("staleTtlMillis", Long.MAX_VALUE)
+                put("manifest", response.manifest)
+                put("signature", response.signature)
+                put("certificateChain", JSONArray(response.certificateChain))
+            }
+            val seedFile = dir.resolve("seed.json")
+            seedFile.writeText(seedJson.toString())
+
+            val storage = PlainTextTrustListCacheStorage(seedFile)
+            val loader = TrustListSeedLoader(storage, manifestVerifier)
+
+            val api = RecordingTrustListApi(emptyMap())
+            api.shouldFail = true
+            val repository = TrustListRepository(
+                api,
+                dir,
+                defaultMaxAgeMillis = 1_000L,
+                delayProvider = { _ -> },
+                manifestVerifier = manifestVerifier,
+                seedLoader = loader,
+            )
+
+            val snapshot = repository.getOrRefresh(nowMillis = 0L)
+
+            assertEquals(payload, snapshot.entries)
+            assertTrue(snapshot.stale)
         }
     }
 

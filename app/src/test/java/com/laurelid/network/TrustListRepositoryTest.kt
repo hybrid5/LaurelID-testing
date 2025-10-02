@@ -3,6 +3,7 @@ package com.laurelid.network
 import com.laurelid.observability.InMemoryStructuredEventExporter
 import com.laurelid.observability.StructuredEventLogger
 import java.io.IOException
+import java.util.Base64
 import java.util.concurrent.TimeUnit
 import kotlin.io.path.createTempDirectory
 import kotlin.test.AfterTest
@@ -15,6 +16,7 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
+import org.json.JSONObject
 
 class TrustListRepositoryTest {
     private lateinit var exporter: InMemoryStructuredEventExporter
@@ -353,6 +355,77 @@ class TrustListRepositoryTest {
             val events = exporter.snapshot().filter { it.event == "trust_list_cache_expired" }
             assertEquals(1, events.size)
             assertEquals(false, events.first().success)
+        }
+    }
+
+    @Test
+    fun `tampered cached manifest is rejected`() = runBlocking {
+        withTempDir { dir ->
+            val api = RecordingTrustListApi(mapOf("AZ" to "cert"))
+            val repository = TrustListRepository(
+                api,
+                dir,
+                defaultMaxAgeMillis = 10_000L,
+                manifestVerifier = manifestVerifier,
+                initialBaseUrl = TrustListEndpointPolicy.defaultBaseUrl,
+            )
+
+            repository.getOrRefresh(nowMillis = 0L)
+
+            val cacheFile = dir.resolve("trust_list.json")
+            val tampered = JSONObject(cacheFile.readText())
+            tampered.put(
+                "manifest",
+                Base64.getEncoder().encodeToString("{}".toByteArray()),
+            )
+            cacheFile.writeText(tampered.toString())
+
+            val offlineApi = RecordingTrustListApi(emptyMap()).apply { shouldFail = true }
+            val coldRepository = TrustListRepository(
+                offlineApi,
+                dir,
+                defaultMaxAgeMillis = 10_000L,
+                manifestVerifier = manifestVerifier,
+                initialBaseUrl = TrustListEndpointPolicy.defaultBaseUrl,
+            )
+
+            assertFailsWith<IOException> {
+                coldRepository.getOrRefresh(nowMillis = 5_000L)
+            }
+        }
+    }
+
+    @Test
+    fun `cached manifest ignored when endpoint changes`() = runBlocking {
+        withTempDir { dir ->
+            val api = RecordingTrustListApi(mapOf("AZ" to "cert"))
+            val repository = TrustListRepository(
+                api,
+                dir,
+                defaultMaxAgeMillis = 10_000L,
+                manifestVerifier = manifestVerifier,
+                initialBaseUrl = TrustListEndpointPolicy.defaultBaseUrl,
+            )
+
+            repository.getOrRefresh(nowMillis = 0L)
+
+            val cacheFile = dir.resolve("trust_list.json")
+            val mutated = JSONObject(cacheFile.readText())
+            mutated.put("baseUrl", "https://other.example.com/")
+            cacheFile.writeText(mutated.toString())
+
+            val offlineApi = RecordingTrustListApi(emptyMap()).apply { shouldFail = true }
+            val coldRepository = TrustListRepository(
+                offlineApi,
+                dir,
+                defaultMaxAgeMillis = 10_000L,
+                manifestVerifier = manifestVerifier,
+                initialBaseUrl = TrustListEndpointPolicy.defaultBaseUrl,
+            )
+
+            assertFailsWith<IOException> {
+                coldRepository.getOrRefresh(nowMillis = 5_000L)
+            }
         }
     }
 

@@ -123,6 +123,7 @@ class ScannerActivity : AppCompatActivity() {
     private var currentConfig: AdminConfig = AdminConfig()
     private var currentBaseUrl: String? = null
     private var demoJob: Job? = null
+    private var endpointUpdateJob: Job? = null
     private var nextDemoSuccess = true
 
     private val adminTouchHandler = Handler(Looper.getMainLooper())
@@ -220,6 +221,7 @@ class ScannerActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
         demoJob?.cancel()
+        endpointUpdateJob?.cancel()
         if (!cameraExecutor.isShutdown) {
             cameraExecutor.shutdown()
         }
@@ -714,17 +716,20 @@ class ScannerActivity : AppCompatActivity() {
                 TAG,
                 "Rebuilding network dependencies. Force: $forceRebuild, Current URL: $currentBaseUrl, Target URL: $targetBaseUrl"
             )
-            try {
-                val api = trustListApiFactory.create(targetBaseUrl)
-                trustListRepository.updateEndpoint(api, targetBaseUrl)
-                currentBaseUrl = targetBaseUrl
-                Logger.i(TAG, "Network dependencies rebuilt for URL: $targetBaseUrl")
-            } catch (e: IllegalArgumentException) {
-                Logger.e(TAG, "Invalid trust list URL provided ($targetBaseUrl), falling back to default.", e)
-                Toast.makeText(this, "Invalid API URL, using default.", Toast.LENGTH_LONG).show()
-                val fallbackApi = trustListApiFactory.create(defaultTrustListBaseUrl)
-                trustListRepository.updateEndpoint(fallbackApi, defaultTrustListBaseUrl)
-                currentBaseUrl = defaultTrustListBaseUrl
+            endpointUpdateJob?.cancel()
+            endpointUpdateJob = lifecycleScope.launch {
+                try {
+                    val api = withContext(Dispatchers.IO) { trustListApiFactory.create(targetBaseUrl) }
+                    trustListRepository.updateEndpoint(api, targetBaseUrl)
+                    currentBaseUrl = targetBaseUrl
+                    Logger.i(TAG, "Network dependencies rebuilt for URL: $targetBaseUrl")
+                } catch (e: IllegalArgumentException) {
+                    Logger.e(TAG, "Invalid trust list URL provided ($targetBaseUrl), falling back to default.", e)
+                    Toast.makeText(this@ScannerActivity, "Invalid API URL, using default.", Toast.LENGTH_LONG).show()
+                    val fallbackApi = withContext(Dispatchers.IO) { trustListApiFactory.create(defaultTrustListBaseUrl) }
+                    trustListRepository.updateEndpoint(fallbackApi, defaultTrustListBaseUrl)
+                    currentBaseUrl = defaultTrustListBaseUrl
+                }
             }
         }
     }

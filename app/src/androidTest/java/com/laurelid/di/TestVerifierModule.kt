@@ -94,7 +94,7 @@ private class FakeTrustListRepository(
 
     override fun cached(nowMillis: Long): Snapshot? = snapshot
 
-    override fun updateEndpoint(newApi: TrustListApi, newBaseUrl: String) {
+    override suspend fun updateEndpoint(newApi: TrustListApi, newBaseUrl: String) {
         baseUrl = newBaseUrl
     }
 

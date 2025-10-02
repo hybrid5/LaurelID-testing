@@ -9,7 +9,6 @@ import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -57,6 +56,11 @@ open class TrustListRepository(
         val revokedSerialNumbers: Set<String>,
     )
 
+    private data class VerifiedPayload(
+        val response: TrustListResponse,
+        val manifest: TrustListManifestVerifier.VerifiedManifest,
+    )
+
     private val mutex = Mutex()
     private val cacheFile: File = File(cacheDir, CACHE_FILE_NAME)
 
@@ -96,18 +100,19 @@ open class TrustListRepository(
 
         return try {
             val remote = fetchTrustListWithRetry()
-            val sanitized = remote.entries
+            val verified = remote.manifest
+            val sanitized = verified.entries
             val updatedState = CacheState(
                 entries = sanitized,
                 fetchedAtMillis = nowMillis,
-                freshLifetimeMillis = remote.freshLifetimeMillis,
-                staleLifetimeMillis = remote.staleLifetimeMillis,
-                revokedSerialNumbers = remote.revokedSerialNumbers,
+                freshLifetimeMillis = verified.freshLifetimeMillis,
+                staleLifetimeMillis = verified.staleLifetimeMillis,
+                revokedSerialNumbers = verified.revokedSerialNumbers,
             )
             memoryCache = updatedState
-            persist(updatedState)
+            persist(nowMillis, remote)
             Logger.i(TAG, "Trust list refreshed with ${sanitized.size} entries")
-            Snapshot(sanitized, remote.revokedSerialNumbers, stale = false)
+            Snapshot(sanitized, verified.revokedSerialNumbers, stale = false)
         } catch (throwable: Throwable) {
             Logger.e(TAG, "Failed to refresh trust list, falling back to cache", throwable)
             if (current != null) {
@@ -186,13 +191,14 @@ open class TrustListRepository(
         return Snapshot(state.entries, state.revokedSerialNumbers, stale)
     }
 
-    open fun updateEndpoint(newApi: TrustListApi, newBaseUrl: String) {
+    open suspend fun updateEndpoint(newApi: TrustListApi, newBaseUrl: String) {
         val sanitizedUrl = TrustListEndpointPolicy.requireEndpointAllowed(newBaseUrl)
-        runBlocking {
+        withContext(ioDispatcher) {
             mutex.withLock {
                 trustListApi = newApi
                 baseUrl = sanitizedUrl
                 memoryCache = null
+                clearDiskCacheLocked()
             }
         }
     }
@@ -232,7 +238,7 @@ open class TrustListRepository(
         }
     }
 
-    private suspend fun fetchTrustListWithRetry(): TrustListManifestVerifier.VerifiedManifest {
+    private suspend fun fetchTrustListWithRetry(): VerifiedPayload {
         var attempt = 0
         var nextDelayMillis = retryPolicy.initialDelayMillis
         var lastError: Throwable? = null
@@ -240,8 +246,8 @@ open class TrustListRepository(
         while (attempt < retryPolicy.maxAttempts) {
             val attemptStart = System.currentTimeMillis()
             try {
-                val payload = trustListApi.getTrustList()
-                val verified = manifestVerifier.verify(payload)
+                val response = trustListApi.getTrustList()
+                val verified = manifestVerifier.verify(response)
                 val duration = System.currentTimeMillis() - attemptStart
                 StructuredEventLogger.log(
                     event = TRUST_LIST_REFRESH_EVENT,
@@ -256,16 +262,17 @@ open class TrustListRepository(
                 if (verified.freshLifetimeMillis == 0L && verified.staleLifetimeMillis == 0L) {
                     Logger.w(TAG, "Trust list manifest set zero cache lifetime; treating as immediate expiry")
                 }
-                return verified
+                return VerifiedPayload(response = response, manifest = verified)
             } catch (throwable: Throwable) {
                 lastError = throwable
                 val duration = System.currentTimeMillis() - attemptStart
+                val reason = failureReasonCode(throwable)
                 StructuredEventLogger.log(
                     event = TRUST_LIST_REFRESH_EVENT,
                     timestampMs = attemptStart,
                     scanDurationMs = duration,
                     success = false,
-                    reasonCode = failureReasonCode(throwable),
+                    reasonCode = reason,
                 )
                 Logger.w(TAG, "Trust list refresh attempt ${attempt + 1} failed", throwable)
                 attempt += 1
@@ -275,12 +282,25 @@ open class TrustListRepository(
 
                 val sleepMillis = nextDelayMillis.coerceAtMost(retryPolicy.maxDelayMillis)
                 if (sleepMillis > 0L) {
+                    StructuredEventLogger.log(
+                        event = TRUST_LIST_REFRESH_RETRY_EVENT,
+                        timestampMs = System.currentTimeMillis(),
+                        scanDurationMs = sleepMillis,
+                        success = false,
+                        reasonCode = reason,
+                    )
                     delayProvider.invoke(sleepMillis)
                 }
                 nextDelayMillis = computeNextDelay(nextDelayMillis)
             }
         }
 
+        StructuredEventLogger.log(
+            event = TRUST_LIST_REFRESH_EVENT,
+            timestampMs = System.currentTimeMillis(),
+            success = false,
+            reasonCode = REASON_RETRIES_EXHAUSTED,
+        )
         throw lastError ?: IllegalStateException("Unable to refresh trust list")
     }
 
@@ -297,24 +317,26 @@ open class TrustListRepository(
         return diskState
     }
 
-    private suspend fun persist(state: CacheState) {
+    private suspend fun persist(fetchedAtMillis: Long, payload: VerifiedPayload) {
+        val currentBaseUrl = baseUrl
         withContext(ioDispatcher) {
             try {
                 if (!cacheDir.exists()) {
                     cacheDir.mkdirs()
                 }
+                val response = payload.response
                 val json = JSONObject().apply {
-                    put(KEY_FETCHED_AT, state.fetchedAtMillis)
-                    put(KEY_FRESH_TTL, state.freshLifetimeMillis)
-                    put(KEY_STALE_TTL, state.staleLifetimeMillis)
-                    val entriesJson = JSONObject()
-                    for ((issuer, certificate) in state.entries) {
-                        entriesJson.put(issuer, certificate)
+                    put(KEY_FETCHED_AT, fetchedAtMillis)
+                    if (!currentBaseUrl.isNullOrBlank()) {
+                        put(KEY_BASE_URL, currentBaseUrl)
                     }
-                    put(KEY_ENTRIES, entriesJson)
-                    val revokedArray = JSONArray()
-                    state.revokedSerialNumbers.forEach { revokedArray.put(it) }
-                    put(KEY_REVOKED_SERIALS, revokedArray)
+                    put(KEY_MANIFEST, response.manifest)
+                    put(KEY_SIGNATURE, response.signature)
+                    val chainArray = JSONArray()
+                    response.certificateChain.forEach { certificate ->
+                        chainArray.put(certificate)
+                    }
+                    put(KEY_CERTIFICATE_CHAIN, chainArray)
                 }
                 cacheFile.writeText(json.toString())
             } catch (throwable: Throwable) {
@@ -339,42 +361,65 @@ open class TrustListRepository(
             if (fetchedAt <= 0L) {
                 return@withContext null
             }
+            val cachedBaseUrl = json.optString(KEY_BASE_URL, null)
+            val currentBaseUrl = baseUrl
+            if (!TrustListEndpointPolicy.endpointsMatch(cachedBaseUrl, currentBaseUrl)) {
+                Logger.w(TAG, "Discarding trust list cache for mismatched endpoint")
+                return@withContext null
+            }
 
-            val entriesJson = json.optJSONObject(KEY_ENTRIES) ?: return@withContext null
-            val iterator = entriesJson.keys()
-            val entries = mutableMapOf<String, String>()
-            while (iterator.hasNext()) {
-                val issuer = iterator.next()
-                val certificate = entriesJson.optString(issuer, null)
-                if (certificate != null) {
-                    entries[issuer] = certificate
+            val manifest = json.optString(KEY_MANIFEST, null)?.takeIf { it.isNotBlank() }
+                ?: return@withContext null
+            val signature = json.optString(KEY_SIGNATURE, null)?.takeIf { it.isNotBlank() }
+                ?: return@withContext null
+            val chainArray = json.optJSONArray(KEY_CERTIFICATE_CHAIN) ?: return@withContext null
+            val certificateChain = mutableListOf<String>()
+            for (index in 0 until chainArray.length()) {
+                val value = chainArray.optString(index, null)?.trim()
+                if (!value.isNullOrEmpty()) {
+                    certificateChain.add(value)
                 }
             }
 
-            val freshTtl = json.optLong(KEY_FRESH_TTL, Long.MAX_VALUE).coerceAtLeast(0L)
-            val staleTtl = json.optLong(KEY_STALE_TTL, Long.MAX_VALUE).coerceAtLeast(0L)
-            val revokedArray = json.optJSONArray(KEY_REVOKED_SERIALS)
-            val revoked = mutableSetOf<String>()
-            if (revokedArray != null) {
-                for (index in 0 until revokedArray.length()) {
-                    val value = revokedArray.optString(index, null) ?: continue
-                    val normalized = value.trim()
-                    if (normalized.isNotEmpty()) {
-                        revoked.add(normalized)
-                    }
-                }
+            val response = TrustListResponse(
+                manifest = manifest,
+                signature = signature,
+                certificateChain = certificateChain,
+            )
+
+            val verified = try {
+                manifestVerifier.verify(response)
+            } catch (security: SecurityException) {
+                Logger.e(TAG, "Stored trust list manifest failed validation; deleting cache", security)
+                StructuredEventLogger.log(
+                    event = TRUST_LIST_CACHE_VALIDATION_FAILED_EVENT,
+                    success = false,
+                    reasonCode = failureReasonCode(security),
+                )
+                cacheFile.delete()
+                return@withContext null
             }
 
             CacheState(
-                entries = entries.toMap(),
+                entries = verified.entries,
                 fetchedAtMillis = fetchedAt,
-                freshLifetimeMillis = freshTtl,
-                staleLifetimeMillis = staleTtl,
-                revokedSerialNumbers = revoked,
+                freshLifetimeMillis = verified.freshLifetimeMillis,
+                staleLifetimeMillis = verified.staleLifetimeMillis,
+                revokedSerialNumbers = verified.revokedSerialNumbers,
             )
         } catch (throwable: Throwable) {
             Logger.e(TAG, "Failed to read trust list cache from disk", throwable)
             null
+        }
+    }
+
+    private fun clearDiskCacheLocked() {
+        try {
+            if (cacheFile.exists() && !cacheFile.delete()) {
+                cacheFile.writeText("")
+            }
+        } catch (throwable: Throwable) {
+            Logger.e(TAG, "Unable to clear trust list cache on endpoint change", throwable)
         }
     }
 
@@ -383,10 +428,10 @@ open class TrustListRepository(
         private const val CACHE_DIRECTORY = "trust_list"
         private const val CACHE_FILE_NAME = "trust_list.json"
         private const val KEY_FETCHED_AT = "fetchedAt"
-        private const val KEY_ENTRIES = "entries"
-        private const val KEY_FRESH_TTL = "freshTtl"
-        private const val KEY_STALE_TTL = "staleTtl"
-        private const val KEY_REVOKED_SERIALS = "revokedSerials"
+        private const val KEY_BASE_URL = "baseUrl"
+        private const val KEY_MANIFEST = "manifest"
+        private const val KEY_SIGNATURE = "signature"
+        private const val KEY_CERTIFICATE_CHAIN = "certificateChain"
         private val DEFAULT_MAX_AGE_MILLIS = TimeUnit.HOURS.toMillis(12)
         private val DEFAULT_STALE_TTL_MILLIS = TimeUnit.DAYS.toMillis(3)
         internal const val DEFAULT_MAX_ATTEMPTS = 3
@@ -394,10 +439,13 @@ open class TrustListRepository(
         private const val DEFAULT_MAX_DELAY_MILLIS = 5_000L
         private const val DEFAULT_BACKOFF_MULTIPLIER = 2.0
         private const val TRUST_LIST_REFRESH_EVENT = "trust_list_refresh"
+        private const val TRUST_LIST_REFRESH_RETRY_EVENT = "trust_list_refresh_retry"
         private const val TRUST_LIST_STALE_CACHE_SERVED_EVENT = "trust_list_stale_cache_served"
         private const val TRUST_LIST_CACHE_EXPIRED_EVENT = "trust_list_cache_expired"
+        private const val TRUST_LIST_CACHE_VALIDATION_FAILED_EVENT = "trust_list_cache_validation_failed"
         private const val REASON_OK = "OK"
         private const val REASON_RETRY_SUCCESS = "RETRY_SUCCESS"
+        private const val REASON_RETRIES_EXHAUSTED = "RETRIES_EXHAUSTED"
         private const val REASON_STALE_CACHE = "STALE_CACHE"
         private const val REASON_CACHE_FRESH = "CACHE_FRESH"
         private const val REASON_STALE_EXPIRED = "STALE_TTL_EXCEEDED"

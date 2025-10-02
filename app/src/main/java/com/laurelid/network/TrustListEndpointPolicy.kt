@@ -78,11 +78,28 @@ object TrustListEndpointPolicy {
         if (trimmed.isNullOrEmpty()) {
             return null
         }
+        return normalizeOrNull(trimmed)
+    }
+
+    internal fun normalizeOrNull(candidate: String?): String? {
+        val trimmed = candidate?.trim()
+        if (trimmed.isNullOrEmpty()) {
+            return null
+        }
         return try {
             normalize(trimmed)
         } catch (_: IllegalArgumentException) {
             null
         }
+    }
+
+    internal fun endpointsMatch(first: String?, second: String?): Boolean {
+        val normalizedFirst = normalizeOrNull(first)
+        val normalizedSecond = normalizeOrNull(second)
+        if (normalizedFirst == null || normalizedSecond == null) {
+            return normalizedFirst == null && normalizedSecond == null
+        }
+        return normalizedFirst == normalizedSecond
     }
 
     private fun normalize(candidate: String): String {

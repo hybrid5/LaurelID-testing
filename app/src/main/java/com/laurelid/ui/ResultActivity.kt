@@ -2,7 +2,6 @@ package com.laurelid.ui
 
 import android.animation.AnimatorSet
 import android.animation.ObjectAnimator
-import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -11,8 +10,8 @@ import android.view.View
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
-import androidx.constraintlayout.widget.ConstraintLayout
 import androidx.core.content.ContextCompat
+import com.google.android.material.card.MaterialCardView
 import com.laurelid.R
 import com.laurelid.data.VerificationResult // Ensure this is Parcelable and has the necessary fields
 import com.laurelid.kiosk.KioskWatchdogService
@@ -81,23 +80,30 @@ class ResultActivity : AppCompatActivity() {
     private fun bindResult() {
         val result = verificationResult ?: return // Should not happen due to check in onCreate
 
-        val rootLayout: ConstraintLayout = findViewById(R.id.resultRoot)
         val titleView: TextView = findViewById(R.id.resultTitle)
         val detailView: TextView = findViewById(R.id.resultDetail)
         val issuerView: TextView = findViewById(R.id.resultIssuer)
         val iconView: TextView = findViewById(R.id.resultIcon)
+        val footerView: TextView = findViewById(R.id.resultFooter)
+        val cardView: MaterialCardView = findViewById(R.id.resultCard)
 
         if (result.success) {
-            rootLayout.setBackgroundColor(ContextCompat.getColor(this, R.color.verification_success))
             iconView.text = "✓" // Checkmark symbol
             titleView.text = getString(R.string.result_verified)
+            titleView.setTextColor(ContextCompat.getColor(this, R.color.verification_success))
+            cardView.setStrokeColor(ContextCompat.getColor(this, R.color.verification_success))
+            footerView.text = getString(R.string.result_footer_success)
+            iconView.setTextColor(ContextCompat.getColor(this, R.color.verification_success))
             // Assuming ageOver21 is a boolean in VerificationResult
             val ageDetail = if (result.ageOver21 == true) "21+" else "Under 21" // Handle null case for ageOver21 if it's nullable
             detailView.text = getString(R.string.result_success_detail, ageDetail)
         } else {
-            rootLayout.setBackgroundColor(ContextCompat.getColor(this, R.color.verification_failure))
             iconView.text = "✕" // X symbol
             titleView.text = getString(R.string.result_rejected)
+            titleView.setTextColor(ContextCompat.getColor(this, R.color.verification_failure))
+            cardView.setStrokeColor(ContextCompat.getColor(this, R.color.verification_failure))
+            footerView.text = getString(R.string.result_footer_failure)
+            iconView.setTextColor(ContextCompat.getColor(this, R.color.verification_failure))
             val errorDetail = result.error ?: getString(R.string.result_details_error_unknown)
             detailView.text = getString(R.string.result_failure_detail, errorDetail)
         }
@@ -106,7 +112,7 @@ class ResultActivity : AppCompatActivity() {
         issuerView.text = getString(R.string.result_issuer, issuerText)
 
         // Animate views after setting their initial text content
-        animateViews(iconView, titleView, detailView, issuerView)
+        animateViews(iconView, titleView, detailView, issuerView, footerView)
     }
 
     private fun animateViews(vararg views: View) { // Changed to View to be more generic

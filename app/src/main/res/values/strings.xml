@@ -4,6 +4,7 @@
     <string name="scanner_status_verifying">Verifying…</string>
     <string name="scanner_status_ready">Ready</string>
     <string name="scanner_hint">Align QR code or tap ID to reader</string>
+    <string name="scanner_overlay_footer">Privacy-first verification in progress.</string>
     <string name="scanner_debug_button">Dump recent logs</string>
     <string name="result_verified">VERIFIED</string>
     <string name="result_rejected">REJECTED</string>
@@ -13,11 +14,17 @@
     <string name="result_unknown_issuer">Unknown issuer</string>
     <string name="result_success_detail">Patron verified • %1$s</string>
     <string name="result_failure_detail">Unable to verify • %1$s</string>
+    <string name="result_footer_success">Access granted. Enjoy the experience!</string>
+    <string name="result_footer_failure">Please review the credential and try again.</string>
     <string name="login_placeholder">Operator login placeholder</string>
+    <string name="login_title">Welcome back</string>
+    <string name="login_tagline">Authenticate to unlock Laurel ID</string>
+    <string name="login_footer">Secure identity verification for modern venues.</string>
     <string name="error_camera_permission">Camera permission is required for scanning</string>
     <string name="toast_processing">Already processing credential…</string>
     <string name="toast_nfc_error">Unable to read NFC credential</string>
     <string name="admin_title">Administrator Settings</string>
+    <string name="admin_description">Fine-tune your device configuration and security controls.</string>
     <string name="admin_venue_id">Venue ID</string>
     <string name="admin_trust_refresh">Trust list refresh (minutes)</string>
     <string name="admin_api_endpoint">Trust list API endpoint override</string>

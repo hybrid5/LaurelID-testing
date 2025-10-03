@@ -12,4 +12,15 @@
     <color name="input_background">#FFF4F4F4</color>
     <color name="text_hint_on_light">#FF5C5C5C</color>
     <color name="result_metadata">#FFC8C8C8</color>
+
+    <!-- Updated palette for immersive UI -->
+    <color name="gradient_start">#0C132C</color>
+    <color name="gradient_center">#192A52</color>
+    <color name="gradient_end">#3B4FD4</color>
+    <color name="card_surface">#CC101B3B</color>
+    <color name="card_stroke">#59FFFFFF</color>
+    <color name="text_secondary_on_dark">#CCFFFFFF</color>
+    <color name="accent_glow">#663BDEFF</color>
+    <color name="button_primary">#4EDDD4</color>
+    <color name="button_primary_pressed">#36B3AB</color>
 </resources>

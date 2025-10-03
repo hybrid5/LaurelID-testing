@@ -3,6 +3,7 @@ package com.laurelid.network
 import com.laurelid.BuildConfig
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -79,5 +80,20 @@ class TrustListEndpointPolicyTest {
                 // expected
             }
         }
+    }
+
+    @Test
+    fun `normalize or null returns null for invalid input`() {
+        assertNull(TrustListEndpointPolicy.normalizeOrNull(""))
+        assertNull(TrustListEndpointPolicy.normalizeOrNull("not a url"))
+    }
+
+    @Test
+    fun `endpoints match compares normalized values`() {
+        val default = TrustListEndpointPolicy.defaultBaseUrl
+        val extraSlash = "$default/"
+        assertTrue(TrustListEndpointPolicy.endpointsMatch(default, extraSlash))
+        assertFalse(TrustListEndpointPolicy.endpointsMatch(default, "https://example.com"))
+        assertTrue(TrustListEndpointPolicy.endpointsMatch(null, null))
     }
 }

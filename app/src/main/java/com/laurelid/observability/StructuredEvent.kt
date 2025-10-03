@@ -12,4 +12,5 @@ data class StructuredEvent(
     val success: Boolean? = null,
     val reasonCode: String? = null,
     val trustStale: Boolean? = null,
+    val redactStringPayloads: Boolean = true,
 )

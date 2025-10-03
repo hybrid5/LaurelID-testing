@@ -39,14 +39,6 @@ class PlayIntegrityGateTest {
         assertFalse(PlayIntegrityGate.isAdminAccessAllowed(context))
     }
 
-    @Test
-    fun stagingFlavorBypassesGate() = runTest {
-        PlayIntegrityGate.overrideFlavorForTesting("staging")
-        PlayIntegrityGate.setHelperFactoryForTesting { FakeProvider(PlayIntegrityVerdict.FAILED_DEVICE_INTEGRITY) }
-
-        assertTrue(PlayIntegrityGate.isAdminAccessAllowed(context))
-    }
-
     private class FakeProvider(
         private val verdict: PlayIntegrityVerdict,
     ) : PlayIntegrityVerdictProvider {

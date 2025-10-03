@@ -27,7 +27,7 @@ Run the helper script from the repository root:
 
 The script performs the following configuration:
 
-- Promotes `com.laurelid/.DeviceAdminReceiver` to **device owner**.
+- Promotes `com.laurelid/.kiosk.LaurelIdDeviceAdminReceiver` to **device owner**.
 - Adds the app to the lock-task allowlist and enables key system dialogs
   (`KEYGUARD`, `SYSTEM_INFO`, `NOTIFICATIONS`, `GLOBAL_ACTIONS`) so permission
   prompts and error sheets can still surface while pinned.
@@ -57,6 +57,9 @@ After the device reboots:
    The dialog should appear despite lock task being active.
 4. Allow the device to idle for several minutes; it should remain responsive to
    NFC taps or manual refreshes.
+5. If you accidentally sideload a **release** build before provisioning, the
+   app will crash on launch with an "app must be device owner" error. Run the
+   provisioning script above and relaunch to clear the guardrail.
 
 ## Uninstall / Reset Instructions
 
@@ -65,7 +68,7 @@ ADB commands:
 
 ```bash
 adb wait-for-device
-adb shell dpm remove-active-admin --user 0 "com.laurelid/.DeviceAdminReceiver"
+adb shell dpm remove-active-admin --user 0 "com.laurelid/.kiosk.LaurelIdDeviceAdminReceiver"
 adb shell cmd package clear-home-activity
 adb shell cmd deviceidle whitelist -com.laurelid
 adb shell am set-inactive com.laurelid true

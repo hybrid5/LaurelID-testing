@@ -1,15 +1,18 @@
 package com.laurelid.util
 
 import android.content.Context
+import android.util.Base64
 import androidx.annotation.VisibleForTesting
 import androidx.security.crypto.EncryptedFile
 import androidx.security.crypto.MasterKey
+import com.laurelid.auth.VerifierService
 import com.laurelid.config.AdminConfig
 import com.laurelid.data.VerificationResult
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import java.io.IOException
 import java.security.GeneralSecurityException
+import java.security.MessageDigest
 import java.time.Clock
 import java.util.concurrent.TimeUnit
 import javax.inject.Singleton
@@ -54,11 +57,13 @@ open class LogManager constructor(
 
             val payload = JSONObject().apply {
                 put("ts", clock.millis())
-                put("venueId", config.venueId)
-                put("success", result.success)
-                put("ageOver21", result.ageOver21 == true)
-                put("error", result.error)
-                put("demoMode", demoModeUsed)
+                put("venueId", REDACTED_VENUE_ID)
+                put("success", JSONObject.NULL)
+                put("ageOver21", JSONObject.NULL)
+                val reasonCode = VerifierService.sanitizeReasonCode(result.error)
+                val errorHash = reasonCode?.let { hashError(it) }
+                put("error", errorHash ?: JSONObject.NULL)
+                put("demoMode", JSONObject.NULL)
             }.toString()
 
             val lines = readEncryptedLines(file).toMutableList()
@@ -157,5 +162,12 @@ open class LogManager constructor(
         private const val KEY_LEGACY_PURGED = "legacy_logs_purged"
         private val TIMESTAMP_REGEX = Regex("\"ts\":(\\d+)")
         private const val TAG = "LogManager"
+        private const val REDACTED_VENUE_ID = "REDACTED"
+    }
+
+    @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
+    internal open fun hashError(error: String): String {
+        val digest = MessageDigest.getInstance("SHA-256").digest(error.toByteArray(Charsets.UTF_8))
+        return Base64.encodeToString(digest, Base64.NO_WRAP)
     }
 }

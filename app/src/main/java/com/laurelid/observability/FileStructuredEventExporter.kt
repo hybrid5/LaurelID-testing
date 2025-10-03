@@ -1,6 +1,7 @@
 package com.laurelid.observability
 
 import android.content.Context
+import com.laurelid.BuildConfig
 import com.laurelid.util.Logger
 import java.io.File
 import java.io.IOException
@@ -14,13 +15,20 @@ import org.json.JSONObject
  */
 class FileStructuredEventExporter(
     private val directoryProvider: () -> File,
+    private val isDebugBuild: () -> Boolean = { BuildConfig.DEBUG },
 ) : IEventExporter {
 
-    constructor(context: Context) : this({ File(context.filesDir, TELEMETRY_DIRECTORY) })
+    constructor(context: Context) : this(
+        directoryProvider = { File(context.filesDir, TELEMETRY_DIRECTORY) },
+    )
 
     private val lock = ReentrantLock()
 
     override fun export(event: StructuredEvent) {
+        if (!isDebugBuild.invoke()) {
+            Logger.w(TAG, "Skipping telemetry export: plaintext exporter disabled for non-debug builds")
+            return
+        }
         lock.withLock {
             val directory = directoryProvider.invoke()
             if (!ensureDirectory(directory)) {
@@ -28,7 +36,7 @@ class FileStructuredEventExporter(
             }
 
             val file = File(directory, EVENTS_FILE)
-            val json = event.toJsonString()
+            val json = event.toJsonString(redactStrings = event.redactStringPayloads)
             try {
                 file.appendText(json + System.lineSeparator())
             } catch (ioException: IOException) {
@@ -49,15 +57,26 @@ class FileStructuredEventExporter(
         }
     }
 
-    private fun StructuredEvent.toJsonString(): String {
+    private fun StructuredEvent.toJsonString(redactStrings: Boolean): String {
         val json = JSONObject()
         json.put(KEY_EVENT, event)
         json.put(KEY_TIMESTAMP_MS, timestampMs)
         scanDurationMs?.let { json.put(KEY_SCAN_DURATION_MS, it) }
         success?.let { json.put(KEY_SUCCESS, it) }
-        reasonCode?.let { json.put(KEY_REASON_CODE, it) }
+        reasonCode?.let { json.put(KEY_REASON_CODE, redactIfNeeded(it, redactStrings)) }
         trustStale?.let { json.put(KEY_TRUST_STALE, it) }
         return json.toString()
+    }
+
+    private fun redactIfNeeded(value: String, redact: Boolean): String {
+        if (!redact) {
+            return value
+        }
+        return if (value.isBlank()) {
+            value
+        } else {
+            REDACTED_PLACEHOLDER
+        }
     }
 
     companion object {
@@ -70,5 +89,6 @@ class FileStructuredEventExporter(
         private const val KEY_SUCCESS = "success"
         private const val KEY_REASON_CODE = "reason_code"
         private const val KEY_TRUST_STALE = "trust_stale"
+        internal const val REDACTED_PLACEHOLDER = "redacted"
     }
 }

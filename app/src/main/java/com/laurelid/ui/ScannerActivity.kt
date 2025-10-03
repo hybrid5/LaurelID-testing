@@ -2,14 +2,9 @@ package com.laurelid.ui
 
 import android.Manifest
 import android.app.PendingIntent
-// import android.app.admin.DevicePolicyManager // Not directly used in current fixes
-// import android.content.ComponentName // Not directly used
-import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
-import android.nfc.NdefMessage
-import android.nfc.NdefRecord
 import android.nfc.NfcAdapter
 import android.os.Build
 import android.os.Bundle
@@ -26,6 +21,7 @@ import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.viewModels
 import androidx.annotation.VisibleForTesting
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
@@ -35,30 +31,28 @@ import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
-import com.google.mlkit.vision.barcode.BarcodeScanning // Ensured
-import com.google.mlkit.vision.barcode.BarcodeScannerOptions // Changed to this specific import
-import com.google.mlkit.vision.barcode.common.Barcode // Kept as common
-import com.google.mlkit.vision.common.InputImage
+import androidx.lifecycle.repeatOnLifecycle
+import com.google.mlkit.vision.barcode.BarcodeScanning
+import com.google.mlkit.vision.barcode.BarcodeScannerOptions
 import com.laurelid.BuildConfig
 import com.laurelid.R
-import com.laurelid.auth.ISO18013Parser
-import com.laurelid.auth.ParsedMdoc // Ensure this class exists and has necessary fields
-import com.laurelid.auth.WalletVerifier
 import com.laurelid.config.AdminConfig
 import com.laurelid.config.AdminPinManager
 import com.laurelid.config.ConfigManager
 import com.laurelid.config.EncryptedAdminPinStorage
-import com.laurelid.data.VerificationResult // Ensure this is Parcelable
 import com.laurelid.db.DbModule
-import com.laurelid.db.VerificationEntity
 import com.laurelid.kiosk.KioskWatchdogService
+import com.laurelid.data.VerificationResult
 import com.laurelid.network.TrustListApiFactory
 import com.laurelid.network.TrustListEndpointPolicy
 import com.laurelid.network.TrustListRepository
-import com.laurelid.pos.TransactionManager
+import com.laurelid.scanner.ScannerUiState
+import com.laurelid.scanner.ScannerViewModel
+import com.laurelid.scanner.camera.CameraXAnalyzer
+import com.laurelid.scanner.nfc.NfcHandler
 import com.laurelid.util.KioskUtil
-import com.laurelid.util.LogManager
 import com.laurelid.util.Logger
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.Dispatchers
@@ -67,7 +61,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.nio.charset.StandardCharsets
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -76,6 +69,8 @@ import javax.inject.Named
 
 @AndroidEntryPoint
 class ScannerActivity : AppCompatActivity() {
+
+    private val viewModel: ScannerViewModel by viewModels()
 
     private lateinit var previewView: PreviewView
     private lateinit var statusText: TextView
@@ -89,44 +84,41 @@ class ScannerActivity : AppCompatActivity() {
     lateinit var trustListRepository: TrustListRepository
 
     @Inject
-    lateinit var walletVerifier: WalletVerifier
-
-    @Inject
-    lateinit var logManager: LogManager
-
-    @Inject
     lateinit var trustListApiFactory: TrustListApiFactory
 
     @Inject
     @Named("trustListBaseUrl")
     lateinit var defaultTrustListBaseUrl: String
 
-    private val parser = ISO18013Parser()
+    @Inject
+    lateinit var nfcHandler: NfcHandler
+
     private val cameraExecutor: ExecutorService by lazy { Executors.newSingleThreadExecutor() }
     private val barcodeScanner by lazy {
         BarcodeScanning.getClient(
             BarcodeScannerOptions.Builder()
-                .setBarcodeFormats(Barcode.FORMAT_QR_CODE)
+                .setBarcodeFormats(com.google.mlkit.vision.barcode.common.Barcode.FORMAT_QR_CODE)
                 .build()
         )
     }
-
     private val verificationDao by lazy { DbModule.provideVerificationDao(applicationContext) }
-    private val transactionManager by lazy { TransactionManager() }
 
     private var cameraProvider: ProcessCameraProvider? = null
-    private var isProcessingCredential = false
-    private var currentState: ScannerState = ScannerState.SCANNING
+    private var imageAnalysis: ImageAnalysis? = null
     private var nfcAdapter: NfcAdapter? = null
     private var nfcPendingIntent: PendingIntent? = null
     private var nfcIntentFilters: Array<IntentFilter>? = null
     private var currentConfig: AdminConfig = AdminConfig()
     private var currentBaseUrl: String? = null
     private var demoJob: Job? = null
+    private var endpointUpdateJob: Job? = null
     private var nextDemoSuccess = true
+    private var cameraRunning = false
 
     private val adminTouchHandler = Handler(Looper.getMainLooper())
     private var adminDialogShowing = false
+
+    private var currentUiState: ScannerUiState = ScannerUiState()
 
     private val permissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -150,6 +142,7 @@ class ScannerActivity : AppCompatActivity() {
         currentBaseUrl = trustListRepository.currentBaseUrl() ?: resolveBaseUrl(currentConfig)
 
         rebuildNetworkDependencies(currentConfig, true) // Force initial build
+        viewModel.updateConfig(currentConfig)
 
         KioskWatchdogService.start(this)
         enterLockTaskIfPermitted()
@@ -158,9 +151,15 @@ class ScannerActivity : AppCompatActivity() {
         bindViews()
         setupAdminGesture()
 
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                viewModel.state.collect { renderState(it) }
+            }
+        }
+
         if (!currentConfig.demoMode) {
             requestCameraPermission()
-            handleNfcIntent(intent) // Handle intent that started the activity
+            processNfcIntent(intent)
         }
     }
 
@@ -169,22 +168,17 @@ class ScannerActivity : AppCompatActivity() {
         val newConfig = configManager.getConfig()
         val configChanged = currentConfig != newConfig
         currentConfig = newConfig
+        viewModel.updateConfig(newConfig)
 
         rebuildNetworkDependencies(currentConfig, configChanged)
 
-
         if (currentConfig.demoMode) {
-            stopCamera()
-            startDemoMode()
             disableForegroundDispatch()
         } else {
-            stopDemoMode()
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
-                startCamera()
-            } else {
+            enableForegroundDispatch()
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
                 requestCameraPermission()
             }
-            enableForegroundDispatch()
         }
         KioskUtil.prepareForLockscreen(this)
         KioskUtil.setImmersiveMode(window)
@@ -195,11 +189,11 @@ class ScannerActivity : AppCompatActivity() {
     override fun onPause() {
         super.onPause()
         if (nfcAdapter != null && !currentConfig.demoMode) {
-             disableForegroundDispatch()
+            disableForegroundDispatch()
         }
         stopDemoMode()
-        // No need to call stopCamera() explicitly if using ProcessCameraProvider,
-        // as it's lifecycle-aware. It will unbind when the lifecycle stops.
+        stopCamera()
+        KioskWatchdogService.notifyScannerVisible(false)
     }
 
     override fun onStop() {
@@ -213,13 +207,14 @@ class ScannerActivity : AppCompatActivity() {
         super.onNewIntent(intent)
         setIntent(intent) // Update the activity's intent
         if (!currentConfig.demoMode) {
-            handleNfcIntent(intent) // handleNfcIntent takes Intent?, so this is fine
+            processNfcIntent(intent)
         }
     }
 
     override fun onDestroy() {
         super.onDestroy()
         demoJob?.cancel()
+        endpointUpdateJob?.cancel()
         if (!cameraExecutor.isShutdown) {
             cameraExecutor.shutdown()
         }
@@ -250,7 +245,7 @@ class ScannerActivity : AppCompatActivity() {
         progressBar = findViewById(R.id.scannerProgress)
         debugButton = findViewById(R.id.debugLogButton)
 
-        updateState(ScannerState.SCANNING) // Initial state
+        applyUiState(ScannerUiState())
 
         if (BuildConfig.DEBUG) {
             debugButton.visibility = View.VISIBLE
@@ -274,6 +269,57 @@ class ScannerActivity : AppCompatActivity() {
             true // Consume event
         }
         rootLayout?.setOnTouchListener(touchListener)
+    }
+
+    private fun renderState(state: ScannerUiState) {
+        if (isFinishing) return
+        val previous = currentUiState
+        currentUiState = state
+        applyUiState(state)
+
+        when (state.phase) {
+            ScannerUiState.Phase.Verifying -> stopCamera()
+            ScannerUiState.Phase.Scanning -> {
+                if (!state.demoMode) {
+                    startCameraIfPermitted()
+                } else {
+                    stopCamera()
+                }
+            }
+            ScannerUiState.Phase.Result -> stopCamera()
+        }
+
+        if (state.demoMode) {
+            startDemoMode()
+        } else {
+            stopDemoMode()
+        }
+
+        state.result?.let {
+            if (previous.result != it) {
+                navigateToResult(it)
+                viewModel.onResultConsumed()
+            }
+        }
+
+        state.errorMessageRes?.let { resId ->
+            Toast.makeText(this, resId, Toast.LENGTH_LONG).show()
+            viewModel.onErrorConsumed()
+        }
+    }
+
+    private fun applyUiState(state: ScannerUiState) {
+        if (statusText.text != getString(state.statusTextRes)) {
+            statusText.animate()
+                .alpha(0f)
+                .setDuration(150)
+                .withEndAction {
+                    statusText.setText(state.statusTextRes)
+                    statusText.animate().alpha(1f).setDuration(150).start()
+                }.start()
+        }
+        hintText.text = getString(state.hintTextRes)
+        progressBar.visibility = if (state.showProgress) View.VISIBLE else View.INVISIBLE
     }
 
     private fun promptForAdminPin() {
@@ -372,7 +418,7 @@ class ScannerActivity : AppCompatActivity() {
         }
         when {
             ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED -> {
-                startCamera()
+                startCameraIfPermitted()
             }
             shouldShowRequestPermissionRationale(Manifest.permission.CAMERA) -> {
                 AlertDialog.Builder(this)
@@ -388,153 +434,82 @@ class ScannerActivity : AppCompatActivity() {
         }
     }
 
-    private fun startCamera() {
-        if (currentConfig.demoMode || isProcessingCredential) {
-            Logger.i(TAG, "Camera start prevented: demoMode=${currentConfig.demoMode}, isProcessing=$isProcessingCredential")
+    private fun startCameraIfPermitted() {
+        if (cameraRunning || currentConfig.demoMode) return
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
             return
         }
-        // Removed hasBoundCameras() check as unbindAll() is sufficient
+        startCamera()
+    }
+
+    private fun startCamera() {
+        if (cameraRunning || currentConfig.demoMode) {
+            Logger.i(TAG, "Camera start prevented: demoMode=${currentConfig.demoMode}, running=$cameraRunning")
+            return
+        }
 
         val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
         cameraProviderFuture.addListener({
-            try {
-                cameraProvider = cameraProviderFuture.get()
-            } catch (e: Exception) {
-                Logger.e(TAG, "Failed to get CameraProvider instance", e)
-                return@addListener
-            }
+            val provider = runCatching { cameraProviderFuture.get() }
+                .onFailure { Logger.e(TAG, "Failed to get CameraProvider instance", it) }
+                .getOrNull() ?: return@addListener
 
+            cameraProvider = provider
             val preview = Preview.Builder().build().also { it.setSurfaceProvider(previewView.surfaceProvider) }
-            val imageAnalysis = ImageAnalysis.Builder()
+            val analysis = ImageAnalysis.Builder()
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                 .build()
 
-            imageAnalysis.setAnalyzer(cameraExecutor) { imageProxy ->
-                if (isProcessingCredential) { // Re-check before processing
-                    imageProxy.close()
-                    return@setAnalyzer
+            val analyzer = CameraXAnalyzer(
+                scope = lifecycleScope,
+                barcodeScanner = barcodeScanner,
+                onPayload = { payload -> viewModel.submitQrPayload(payload) },
+                shouldProcess = {
+                    !isFinishing && currentUiState.phase == ScannerUiState.Phase.Scanning && !currentUiState.demoMode
                 }
-                val mediaImage = imageProxy.image ?: run { imageProxy.close(); return@setAnalyzer }
-                val inputImage = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
+            )
 
-                barcodeScanner.process(inputImage)
-                    .addOnSuccessListener { barcodes ->
-                        if (isProcessingCredential) return@addOnSuccessListener // Already handling one
-                        barcodes.firstOrNull { it.format == Barcode.FORMAT_QR_CODE && it.rawValue != null }
-                            ?.rawValue?.let { payload -> runOnUiThread { handleQrPayload(payload) } }
-                    }
-                    .addOnFailureListener { e -> Logger.e(TAG, "Barcode scanning failed", e) }
-                    .addOnCompleteListener { imageProxy.close() }
-            }
-            try {
-                cameraProvider?.unbindAll() // Unbind existing use cases before rebinding
-                cameraProvider?.bindToLifecycle(this, CameraSelector.DEFAULT_BACK_CAMERA, preview, imageAnalysis)
+            analysis.setAnalyzer(cameraExecutor, analyzer)
+            imageAnalysis = analysis
+
+            runCatching {
+                provider.unbindAll()
+                provider.bindToLifecycle(this, CameraSelector.DEFAULT_BACK_CAMERA, preview, analysis)
+                cameraRunning = true
                 Logger.i(TAG, "Camera use cases bound to lifecycle.")
-            } catch (e: Exception) {
-                Logger.e(TAG, "Failed to bind camera use cases", e)
+            }.onFailure { error ->
+                Logger.e(TAG, "Failed to bind camera use cases", error)
+                analysis.clearAnalyzer()
             }
         }, ContextCompat.getMainExecutor(this))
     }
 
     private fun stopCamera() {
+        if (!cameraRunning) return
+        runCatching { imageAnalysis?.clearAnalyzer() }
         cameraProvider?.unbindAll()
+        cameraRunning = false
         Logger.i(TAG, "Camera unbound.")
     }
 
-    private fun handleQrPayload(payload: String) {
-        if (isProcessingCredential) {
+    private fun processNfcIntent(intent: Intent?) {
+        if (intent == null || currentConfig.demoMode) {
+            return
+        }
+        if (intent.action != NfcAdapter.ACTION_NDEF_DISCOVERED) {
+            return
+        }
+        if (currentUiState.isProcessing) {
             Toast.makeText(this, R.string.toast_processing, Toast.LENGTH_SHORT).show()
             return
         }
-        val isDemo = currentConfig.demoMode
-        val effectivePayload = if (isDemo) nextDemoPayload() else payload
-        Logger.i(TAG, if (isDemo) "Demo mode active; substituting simulated QR payload" else "QR payload received for verification")
-
-        isProcessingCredential = true
-        stopCamera() // Stop camera explicitly to free resources during verification
-        updateState(ScannerState.VERIFYING)
-        // Assume parser.parseFromQrPayload is synchronous or handles its own threading
-        val parsedMdoc = parser.parseFromQrPayload(effectivePayload)
-        verifyAndPersist(parsedMdoc, isDemo)
-    }
-
-    private fun handleNfcIntent(intent: Intent?) {
-        if (intent == null || currentConfig.demoMode || NfcAdapter.ACTION_NDEF_DISCOVERED != intent.action) {
-            return
-        }
-        if (intent.type != MDL_MIME_TYPE) {
-             Logger.w(TAG, "NFC intent received with incorrect MIME type: ${intent.type}")
-            return
-        }
-        if (isProcessingCredential) {
-            Toast.makeText(this, R.string.toast_processing, Toast.LENGTH_SHORT).show()
-            return
-        }
-
-        val messages: Array<NdefMessage>? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            intent.getParcelableArrayExtra(NfcAdapter.EXTRA_NDEF_MESSAGES, NdefMessage::class.java)
-        } else {
-            @Suppress("DEPRECATION")
-            intent.getParcelableArrayExtra(NfcAdapter.EXTRA_NDEF_MESSAGES)?.mapNotNull { it as? NdefMessage }?.toTypedArray()
-        }
-
-        val record = messages?.firstOrNull()?.records?.firstOrNull { candidate ->
-            candidate.tnf == NdefRecord.TNF_MIME_MEDIA &&
-            String(candidate.type, StandardCharsets.US_ASCII) == MDL_MIME_TYPE // Use StandardCharsets
-        }
-        val payload = record?.payload
-
+        val payload = nfcHandler.extractPayload(intent)
         if (payload != null) {
             Logger.i(TAG, "NFC payload received for verification")
-            isProcessingCredential = true
-            stopCamera() // Stop camera when processing NFC
-            updateState(ScannerState.VERIFYING)
-            val parsedMdoc = parser.parseFromNfc(payload) // Assume parseFromNfc exists and is similar to parseFromQrPayload
-            verifyAndPersist(parsedMdoc, demoPayloadUsed = false)
+            viewModel.submitNfcPayload(payload)
         } else {
-            Toast.makeText(this, R.string.toast_nfc_error, Toast.LENGTH_LONG).show() // Ensure string exists
+            Toast.makeText(this, R.string.toast_nfc_error, Toast.LENGTH_LONG).show()
             Logger.w(TAG, "NFC NDEF message did not contain a valid mdoc payload.")
-        }
-    }
-
-    private fun handleDemoPayload() {
-        if (!currentConfig.demoMode || isProcessingCredential) return
-        Logger.i(TAG, "Demo mode injecting simulated credential")
-        isProcessingCredential = true
-        stopCamera()
-        updateState(ScannerState.VERIFYING)
-        val parsedMdoc = parser.parseFromQrPayload(nextDemoPayload())
-        verifyAndPersist(parsedMdoc, demoPayloadUsed = true)
-    }
-
-    private fun verifyAndPersist(parsedMdoc: ParsedMdoc, demoPayloadUsed: Boolean) {
-        val configSnapshot = currentConfig // Use a snapshot of config for this verification
-        val refreshMillis = TimeUnit.MINUTES.toMillis(configSnapshot.trustRefreshIntervalMinutes.toLong())
-
-        lifecycleScope.launch {
-            val verifier = walletVerifier
-
-            val verificationResult = runCatching {
-                verifier.verify(parsedMdoc, refreshMillis)
-            }.getOrElse { throwable ->
-                Logger.e(TAG, "Verification failed with exception", throwable)
-                // Assuming ParsedMdoc has these fields, or they are nullable/defaulted in VerificationResult
-                VerificationResult(
-                    success = false,
-                    ageOver21 = parsedMdoc.ageOver21, // This might not be known if parsing failed before this point
-                    issuer = parsedMdoc.issuer,       // Same as above
-                    subjectDid = parsedMdoc.subjectDid, // Same as above
-                    docType = parsedMdoc.docType,       // Same as above
-                    error = throwable.message ?: "Unknown verification error",
-                    trustStale = null,
-                )
-            }
-
-            persistResult(verificationResult, configSnapshot, demoPayloadUsed)
-            transactionManager.record(verificationResult) // Assuming TransactionManager.record exists
-            // transactionManager.printResult(verificationResult) // This seems for debugging, decide if needed
-
-            navigateToResult(verificationResult) // Navigate after all processing
         }
     }
 
@@ -546,50 +521,12 @@ class ScannerActivity : AppCompatActivity() {
         return resolved
     }
 
-    private fun updateState(state: ScannerState) {
-        if (state == currentState && !isFinishing) return // Avoid updates if already in state or finishing
-        currentState = state
-
-        val textRes = when (state) {
-            ScannerState.SCANNING -> R.string.scanner_status_scanning
-            ScannerState.VERIFYING -> R.string.scanner_status_verifying
-            ScannerState.RESULT -> R.string.scanner_status_ready // Or "Processed"
-        }
-        val hintRes = when (state) {
-            ScannerState.SCANNING -> R.string.scanner_hint
-            ScannerState.VERIFYING -> R.string.scanner_status_verifying // Or a "Verifying, please wait..."
-            ScannerState.RESULT -> R.string.scanner_status_ready // Or "Tap to scan next"
-        }
-
-        // Ensure UI updates are on the main thread, though animate() usually handles this.
-        runOnUiThread {
-            statusText.animate()
-                .alpha(0f)
-                .setDuration(150)
-                .withEndAction {
-                    statusText.setText(textRes) // Ensure string resources exist
-                    statusText.animate().alpha(1f).setDuration(150).start()
-                }.start()
-            hintText.text = getString(hintRes) // Ensure string resources exist
-            progressBar.visibility = if (state == ScannerState.VERIFYING) View.VISIBLE else View.INVISIBLE
-        }
-    }
-
     private fun navigateToResult(result: VerificationResult) {
         if (isFinishing) return
-        updateState(ScannerState.RESULT) // Update state before navigating
         val intent = Intent(this, ResultActivity::class.java).apply {
             putExtra(ResultActivity.EXTRA_VERIFICATION_RESULT, result) // Assuming ResultActivity.EXTRA_VERIFICATION_RESULT and VerificationResult is Parcelable
         }
         startActivity(intent)
-        isProcessingCredential = false // Reset for next scan if not finishing
-        if (!currentConfig.demoMode) { 
-            // If not finishing and not demo mode, restart camera
-            // requestCameraPermission() // This will call startCamera if needed.
-            // For now, let onResume handle camera restart if the activity is brought back to foreground.
-        } else if (currentConfig.demoMode) {
-            // Demo mode will auto-restart via its loop if still active.
-        }
     }
 
     private fun dumpLatestVerifications() {
@@ -599,50 +536,15 @@ class ScannerActivity : AppCompatActivity() {
         }
     }
 
-    private suspend fun persistResult(result: VerificationResult, config: AdminConfig, demoPayloadUsed: Boolean) {
-        withContext(Dispatchers.IO) {
-            val previous = verificationDao.mostRecent()
-            val successCount = (previous?.totalSuccessCount ?: 0) + if (result.success) 1 else 0
-            val failureCount = (previous?.totalFailureCount ?: 0) + if (result.success) 0 else 1
-            val over21Count = (previous?.totalAgeOver21Count ?: 0) + if (result.ageOver21 == true) 1 else 0
-            val under21Count = (previous?.totalAgeUnder21Count ?: 0) + if (result.ageOver21 == false) 1 else 0
-            val demoCount = (previous?.totalDemoModeCount ?: 0) + if (demoPayloadUsed) 1 else 0
-
-            val entity = VerificationEntity(
-                success = result.success,
-                ageOver21 = result.ageOver21 == true,
-                demoMode = demoPayloadUsed,
-                error = result.error,
-                tsMillis = System.currentTimeMillis(),
-                totalSuccessCount = successCount,
-                totalFailureCount = failureCount,
-                totalAgeOver21Count = over21Count,
-                totalAgeUnder21Count = under21Count,
-                totalDemoModeCount = demoCount,
-            )
-            verificationDao.insert(entity)
-            Logger.i(TAG, "Stored verification result (success=${result.success})")
-            logManager.appendVerification(result, config, demoPayloadUsed)
-        }
-    }
-
     private fun startDemoMode() {
         if (demoJob?.isActive == true) return
         Logger.i(TAG, "Starting demo mode loop")
-        stopCamera() // Ensure camera is stopped for demo mode
-        updateState(ScannerState.SCANNING) // Or a specific demo state
-        isProcessingCredential = false // Reset for demo loop
+        stopCamera()
         demoJob = lifecycleScope.launch {
-            while (isActive) {
+            while (isActive && currentConfig.demoMode) {
                 delay(DEMO_INTERVAL_MS)
-                if (!isActive) break // Check again after delay
-                if (isProcessingCredential) continue
-                if (currentConfig.demoMode) { // Ensure still in demo mode
-                    handleDemoPayload()
-                } else {
-                    stopDemoMode() // Exit if demo mode was turned off
-                    break
-                }
+                if (!isActive || !currentConfig.demoMode) break
+                viewModel.submitDemoPayload { nextDemoPayload() }
             }
         }
     }
@@ -650,9 +552,6 @@ class ScannerActivity : AppCompatActivity() {
     private fun stopDemoMode() {
         demoJob?.cancel()
         demoJob = null
-        if (currentState != ScannerState.VERIFYING) { // Only reset to scanning if not actively verifying
-            updateState(ScannerState.SCANNING)
-        }
     }
 
     private fun nextDemoPayload(): String {
@@ -671,40 +570,30 @@ class ScannerActivity : AppCompatActivity() {
             Logger.w(TAG, "NFC adapter not available or not enabled, cannot enable foreground dispatch.")
             return
         }
-        try {
-            if (nfcPendingIntent == null) {
-                val intent = Intent(this, javaClass).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-                val flags = PendingIntent.FLAG_UPDATE_CURRENT or
-                        (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) PendingIntent.FLAG_MUTABLE else 0)
-                nfcPendingIntent = PendingIntent.getActivity(this, 0, intent, flags)
-            }
-
-            if (nfcIntentFilters == null) {
-                val ndef = IntentFilter(NfcAdapter.ACTION_NDEF_DISCOVERED).apply {
-                    try {
-                        addDataType(MDL_MIME_TYPE)
-                    } catch (e: IntentFilter.MalformedMimeTypeException) {
-                        Logger.e(TAG, "Failed to add NFC MIME type", e)
-                        throw RuntimeException("Failed to add NFC MIME type", e)
-                    }
-                    addCategory(Intent.CATEGORY_DEFAULT)
-                }
-                nfcIntentFilters = arrayOf(ndef)
-            }
-            nfcAdapter?.enableForegroundDispatch(this, nfcPendingIntent, nfcIntentFilters, null)
-            Logger.i(TAG, "NFC foreground dispatch enabled.")
-        } catch (e: Exception) {
-            Logger.e(TAG, "Error enabling NFC foreground dispatch", e)
+        if (nfcPendingIntent == null) {
+            val intent = Intent(this, javaClass).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            val flags = PendingIntent.FLAG_UPDATE_CURRENT or
+                (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) PendingIntent.FLAG_MUTABLE else 0)
+            nfcPendingIntent = PendingIntent.getActivity(this, 0, intent, flags)
         }
+
+        if (nfcIntentFilters == null) {
+            val ndef = IntentFilter(NfcAdapter.ACTION_NDEF_DISCOVERED).apply {
+                try {
+                    addDataType(NfcHandler.MDL_MIME_TYPE)
+                } catch (e: IntentFilter.MalformedMimeTypeException) {
+                    Logger.e(TAG, "Failed to add NFC MIME type", e)
+                    throw RuntimeException("Failed to add NFC MIME type", e)
+                }
+                addCategory(Intent.CATEGORY_DEFAULT)
+            }
+            nfcIntentFilters = arrayOf(ndef)
+        }
+        nfcHandler.enableForegroundDispatch(this, nfcAdapter, nfcPendingIntent, nfcIntentFilters)
     }
 
     private fun disableForegroundDispatch() {
-        try {
-            nfcAdapter?.disableForegroundDispatch(this)
-            Logger.i(TAG, "NFC foreground dispatch disabled.")
-        } catch (e: IllegalStateException) { // Can sometimes happen if activity is closing
-            Logger.w(TAG, "Failed to disable NFC foreground dispatch", e)
-        }
+        nfcHandler.disableForegroundDispatch(this, nfcAdapter)
     }
 
     private fun rebuildNetworkDependencies(config: AdminConfig, forceRebuild: Boolean) {
@@ -714,40 +603,47 @@ class ScannerActivity : AppCompatActivity() {
                 TAG,
                 "Rebuilding network dependencies. Force: $forceRebuild, Current URL: $currentBaseUrl, Target URL: $targetBaseUrl"
             )
-            try {
-                val api = trustListApiFactory.create(targetBaseUrl)
-                trustListRepository.updateEndpoint(api, targetBaseUrl)
-                currentBaseUrl = targetBaseUrl
-                Logger.i(TAG, "Network dependencies rebuilt for URL: $targetBaseUrl")
-            } catch (e: IllegalArgumentException) {
-                Logger.e(TAG, "Invalid trust list URL provided ($targetBaseUrl), falling back to default.", e)
-                Toast.makeText(this, "Invalid API URL, using default.", Toast.LENGTH_LONG).show()
-                val fallbackApi = trustListApiFactory.create(defaultTrustListBaseUrl)
-                trustListRepository.updateEndpoint(fallbackApi, defaultTrustListBaseUrl)
-                currentBaseUrl = defaultTrustListBaseUrl
+            endpointUpdateJob?.cancel()
+            endpointUpdateJob = lifecycleScope.launch {
+                try {
+                    val api = withContext(Dispatchers.IO) { trustListApiFactory.create(targetBaseUrl) }
+                    trustListRepository.updateEndpoint(api, targetBaseUrl)
+                    currentBaseUrl = targetBaseUrl
+                    Logger.i(TAG, "Network dependencies rebuilt for URL: $targetBaseUrl")
+                } catch (e: IllegalArgumentException) {
+                    Logger.e(TAG, "Invalid trust list URL provided ($targetBaseUrl), falling back to default.", e)
+                    Toast.makeText(this@ScannerActivity, "Invalid API URL, using default.", Toast.LENGTH_LONG).show()
+                    val fallbackApi = withContext(Dispatchers.IO) { trustListApiFactory.create(defaultTrustListBaseUrl) }
+                    trustListRepository.updateEndpoint(fallbackApi, defaultTrustListBaseUrl)
+                    currentBaseUrl = defaultTrustListBaseUrl
+                }
             }
         }
     }
 
     private fun enterLockTaskIfPermitted() {
-        if (!currentConfig.demoMode && KioskUtil.isLockTaskPermitted(this)) {
-            try {
-                startLockTask()
-            } catch (e: Exception) {
-                Logger.w(TAG, "Unable to enter lock task mode", e)
-            }
+        val lockTaskPermitted = KioskUtil.isLockTaskPermitted(this)
+        if (!shouldEnterLockTask(currentConfig, lockTaskPermitted)) {
+            Logger.i(
+                TAG,
+                "Skipping lock task entry. demoMode=${currentConfig.demoMode}, permitted=$lockTaskPermitted"
+            )
+            return
         }
+        KioskUtil.startLockTaskIfPermitted(this, lockTaskPermitted)
     }
 
     @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
     internal fun currentBaseUrlForTest(): String? = currentBaseUrl
 
-    private enum class ScannerState { SCANNING, VERIFYING, RESULT }
-
     companion object {
         private const val TAG = "ScannerActivity"
-        private const val MDL_MIME_TYPE = "application/iso.18013-5+mdoc"
         private const val ADMIN_HOLD_DURATION_MS = 3000L // Reduced from 5s for easier testing
         private const val DEMO_INTERVAL_MS = 3000L // Interval for demo mode payloads
+
+        @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
+        internal fun shouldEnterLockTask(config: AdminConfig, lockTaskPermitted: Boolean): Boolean {
+            return !config.demoMode && lockTaskPermitted
+        }
     }
 }

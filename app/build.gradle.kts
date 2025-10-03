@@ -35,6 +35,12 @@ android {
       buildConfigField("long", "TRUST_LIST_CACHE_MAX_AGE_MILLIS", "43200000L")
       buildConfigField("long", "TRUST_LIST_CACHE_STALE_TTL_MILLIS", "259200000L")
       buildConfigField("long", "TRUST_LIST_PIN_EXPIRY_GRACE_MILLIS", "1209600000L")
+      buildConfigField(
+        "String",
+        "TRUST_LIST_MANIFEST_ROOT_CERT",
+        "\"MIIBmzCCAUGgAwIBAgIULLaYvR7QSKLfmVPR5XFwG8lyFsowCgYIKoZIzj0EAwIwIzEhMB8GA1UEAwwYTGF1cmVsSUQgVGVzdCBUcnVzdCBSb290MB4XDTI1MTAwMjAwMDQzMloXDTM1MDkzMDAwMDQzMlowIzEhMB8GA1UEAwwYTGF1cmVsSUQgVGVzdCBUcnVzdCBSb290MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEyrjywG4CQfVfu7CtKnWRmTQUR9OX/aNoWV6kJDiLjDOzywT8Q+0K3kALe/ia4u2VBOjjKYMS2jcqcs5TJZwrsqNTMFEwHQYDVR0OBBYEFKIg2A8F65q0WEuYC9We9JIxIloHMB8GA1UdIwQYMBaAFKIg2A8F65q0WEuYC9We9JIxIloHMA8GA1UdEwEB/wQFMAMBAf8wCgYIKoZIzj0EAwIDSAAwRQIhAPHz3+yopBOVPO6QBvlhHkC9iUNp4Hw6K2zUJOr9MEyVAiA7/885IjIOYQod4TL7qKqu4pDchuhJVvzd+NK/BQz3EQ==\"",
+      )
+      buildConfigField("boolean", "USE_APPLE_EXTERNAL_VERIFIER", "true")
     }
     create("production") {
       dimension = "environment"
@@ -48,6 +54,12 @@ android {
       buildConfigField("long", "TRUST_LIST_CACHE_MAX_AGE_MILLIS", "43200000L")
       buildConfigField("long", "TRUST_LIST_CACHE_STALE_TTL_MILLIS", "259200000L")
       buildConfigField("long", "TRUST_LIST_PIN_EXPIRY_GRACE_MILLIS", "1209600000L")
+      buildConfigField(
+        "String",
+        "TRUST_LIST_MANIFEST_ROOT_CERT",
+        "\"MIIBmzCCAUGgAwIBAgIULLaYvR7QSKLfmVPR5XFwG8lyFsowCgYIKoZIzj0EAwIwIzEhMB8GA1UEAwwYTGF1cmVsSUQgVGVzdCBUcnVzdCBSb290MB4XDTI1MTAwMjAwMDQzMloXDTM1MDkzMDAwMDQzMlowIzEhMB8GA1UEAwwYTGF1cmVsSUQgVGVzdCBUcnVzdCBSb290MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEyrjywG4CQfVfu7CtKnWRmTQUR9OX/aNoWV6kJDiLjDOzywT8Q+0K3kALe/ia4u2VBOjjKYMS2jcqcs5TJZwrsqNTMFEwHQYDVR0OBBYEFKIg2A8F65q0WEuYC9We9JIxIloHMB8GA1UdIwQYMBaAFKIg2A8F65q0WEuYC9We9JIxIloHMA8GA1UdEwEB/wQFMAMBAf8wCgYIKoZIzj0EAwIDSAAwRQIhAPHz3+yopBOVPO6QBvlhHkC9iUNp4Hw6K2zUJOr9MEyVAiA7/885IjIOYQod4TL7qKqu4pDchuhJVvzd+NK/BQz3EQ==\"",
+      )
+      buildConfigField("boolean", "USE_APPLE_EXTERNAL_VERIFIER", "false")
     }
   }
 
@@ -77,18 +89,24 @@ android {
   val debugSigning = signingConfigs.getByName("debug")
 
   buildTypes {
-    release {
+    getByName("release") {
       isMinifyEnabled = true
       isShrinkResources = true
       proguardFiles(
-          getDefaultProguardFile("proguard-android-optimize.txt"),
-          "proguard-rules.pro",
+        getDefaultProguardFile("proguard-android-optimize.txt"),
+        "proguard-rules.pro",
       )
       val hasReleaseSigning = releaseSigning.storeFile != null &&
         !releaseSigning.keyAlias.isNullOrBlank() &&
         !releaseSigning.storePassword.isNullOrBlank() &&
         !releaseSigning.keyPassword.isNullOrBlank()
       signingConfig = if (hasReleaseSigning) releaseSigning else debugSigning
+      buildConfigField("boolean", "USE_APPLE_EXTERNAL_VERIFIER", "false")
+    }
+
+    getByName("debug") {
+      isMinifyEnabled = false
+      buildConfigField("boolean", "USE_APPLE_EXTERNAL_VERIFIER", "true")
     }
   }
 
@@ -147,4 +165,16 @@ dependencies {
   androidTestImplementation(libs.espresso.intents)
   androidTestImplementation(libs.hilt.android.testing)
   kaptAndroidTest(libs.hilt.compiler)
+}
+
+tasks.register("testStagingUnitTest") {
+  group = "verification"
+  description = "Runs unit tests for the staging flavor."
+  dependsOn("testStagingDebugUnitTest")
+}
+
+tasks.register("testProductionUnitTest") {
+  group = "verification"
+  description = "Runs unit tests for the production flavor."
+  dependsOn("testProductionDebugUnitTest")
 }

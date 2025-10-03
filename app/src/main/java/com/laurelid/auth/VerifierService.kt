@@ -13,13 +13,17 @@ import java.security.KeyFactory
 import java.security.MessageDigest
 import java.security.PublicKey
 import java.security.Signature
+import java.security.cert.CertPathValidator
 import java.security.cert.CertificateExpiredException
 import java.security.cert.CertificateFactory
 import java.security.cert.CertificateNotYetValidException
+import java.security.cert.PKIXParameters
+import java.security.cert.TrustAnchor
 import java.security.cert.X509Certificate
 import java.time.Clock
 import java.time.Instant
 import java.util.Base64
+import java.util.Locale
 import java.security.spec.ECGenParameterSpec
 import java.security.spec.ECParameterSpec
 import java.security.spec.ECPoint
@@ -52,6 +56,8 @@ open class VerifierService constructor(
 
         val trustList = trustSnapshot?.entries.orEmpty()
         val trustStale = trustSnapshot?.stale
+        val revokedSerials = trustSnapshot?.revokedSerialNumbers.orEmpty()
+        val normalizedRevocations = revokedSerials.map { it.uppercase(Locale.US) }.toSet()
         if (trustSnapshot?.stale == true) {
             Logger.w(TAG, "Trust list cache is stale; verification proceeding with last known entries.")
         }
@@ -62,9 +68,8 @@ open class VerifierService constructor(
 
         fun fail(
             error: String,
-            issuerOverride: String? = null,
             docTypeOverride: String? = null,
-        ): VerificationResult = failure(verificationStartMs, trustStale, parsed, error, issuerOverride, docTypeOverride)
+        ): VerificationResult = failure(verificationStartMs, trustStale, parsed, error, docTypeOverride)
 
         val decodedIssuerSign1 = decodeSign1(issuerAuth)
             ?: return fail(ERROR_MALFORMED_ISSUER_AUTH)
@@ -85,87 +90,95 @@ open class VerifierService constructor(
         validityInfo.notBefore?.let { notBefore ->
             if (now.isBefore(notBefore)) {
                 Logger.w(TAG, "Credential not yet valid (notBefore=$notBefore)")
-                return fail(ERROR_NOT_YET_VALID, issuer, docType)
+                return fail(ERROR_NOT_YET_VALID, docType)
             }
         }
 
         validityInfo.notAfter?.let { notAfter ->
             if (now.isAfter(notAfter)) {
                 Logger.w(TAG, "Credential expired (notAfter=$notAfter)")
-                return fail(ERROR_DOC_EXPIRED, issuer, docType)
+                return fail(ERROR_DOC_EXPIRED, docType)
             }
         }
 
         val trustAnchor = trustList[issuer]
-            ?: return fail(ERROR_UNTRUSTED_ISSUER, issuer, docType)
+            ?: return fail(ERROR_UNTRUSTED_ISSUER, docType)
 
         val certificate = decodeCertificate(trustAnchor)
-            ?: return fail(ERROR_INVALID_TRUST_ENTRY, issuer, docType)
+            ?: return fail(ERROR_INVALID_TRUST_ENTRY, docType)
 
         try {
             certificate.checkValidity(java.util.Date.from(now))
         } catch (expired: CertificateExpiredException) {
             Logger.e(TAG, "Trust anchor certificate expired", expired)
-            return fail(ERROR_TRUST_ANCHOR_EXPIRED, issuer, docType)
+            return fail(ERROR_TRUST_ANCHOR_EXPIRED, docType)
         } catch (notYetValid: CertificateNotYetValidException) {
             Logger.e(TAG, "Trust anchor certificate not yet valid", notYetValid)
-            return fail(ERROR_TRUST_ANCHOR_NOT_YET_VALID, issuer, docType)
+            return fail(ERROR_TRUST_ANCHOR_NOT_YET_VALID, docType)
         }
 
-        if (!validateCertificateChain(decodedIssuerSign1.certificateChain, certificate)) {
+        val validatedChain = validateCertificateChain(decodedIssuerSign1.certificateChain, certificate)
+            ?: return fail(ERROR_ISSUER_AUTH_CHAIN_MISMATCH, docType)
+
+        if (isCertificateRevoked(validatedChain, normalizedRevocations)) {
+            Logger.w(TAG, "Issuer or trust anchor certificate revoked")
+            return fail(ERROR_CERTIFICATE_REVOKED, docType)
+        }
+
+        if (!validatedChain.any { it.encoded.contentEquals(certificate.encoded) }) {
             Logger.w(TAG, "Issuer authentication chain mismatch")
-            return fail(ERROR_ISSUER_AUTH_CHAIN_MISMATCH, issuer, docType)
+            return fail(ERROR_ISSUER_AUTH_CHAIN_MISMATCH, docType)
         }
 
         if (!validateSignature(decodedIssuerSign1, certificate.publicKey)) {
             Logger.w(TAG, "Issuer signature validation failed")
-            return fail(ERROR_INVALID_SIGNATURE, issuer, docType)
+            return fail(ERROR_INVALID_SIGNATURE, docType)
         }
 
         val devicePublicKey = extractDevicePublicKey(mso)
-            ?: return fail(ERROR_INVALID_DEVICE_KEY_INFO, issuer, docType)
+            ?: return fail(ERROR_INVALID_DEVICE_KEY_INFO, docType)
 
         val decodedDeviceSign1 = decodeSign1(deviceSignedCose)
-            ?: return fail(ERROR_MALFORMED_DEVICE_SIGNED, issuer, docType)
+            ?: return fail(ERROR_MALFORMED_DEVICE_SIGNED, docType)
 
         if (!validateSignature(decodedDeviceSign1, devicePublicKey)) {
             Logger.w(TAG, "Device signature validation failed")
-            return fail(ERROR_INVALID_DEVICE_SIGNATURE, issuer, docType)
+            return fail(ERROR_INVALID_DEVICE_SIGNATURE, docType)
         }
 
         val signedEntries = parseDeviceSignedEntries(decodedDeviceSign1.payload)
-            ?: return fail(ERROR_MALFORMED_DEVICE_SIGNED, issuer, docType)
+            ?: return fail(ERROR_MALFORMED_DEVICE_SIGNED, docType)
 
         if (!deviceEntriesMatch(deviceSignedEntries, signedEntries)) {
             Logger.w(TAG, "Device signed payload mismatch between COSE and parsed entries")
-            return fail(ERROR_DEVICE_DATA_MISMATCH, issuer, docType)
+            return fail(ERROR_DEVICE_DATA_MISMATCH, docType)
         }
 
         val digestMap = parseValueDigests(mso[CBORObject.FromObject(VALUE_DIGESTS_KEY)])
         if (digestMap.isEmpty()) {
             Logger.w(TAG, "No value digests present in MSO; failing closed")
-            return fail(ERROR_NOT_IMPLEMENTED, issuer, docType)
+            return fail(ERROR_NOT_IMPLEMENTED, docType)
         }
 
         val messageDigest = try {
             MessageDigest.getInstance(digestAlgorithm)
         } catch (throwable: Throwable) {
             Logger.e(TAG, "Unsupported digest algorithm $digestAlgorithm", throwable)
-            return fail(ERROR_UNSUPPORTED_DIGEST, issuer, docType)
+            return fail(ERROR_UNSUPPORTED_DIGEST, docType)
         }
 
         for ((namespace, expectedDigests) in digestMap) {
             val actualValues = signedEntries[namespace]
-                ?: return fail(ERROR_MISSING_DEVICE_VALUES, issuer, docType)
+                ?: return fail(ERROR_MISSING_DEVICE_VALUES, docType)
 
             for ((element, expectedDigest) in expectedDigests) {
                 val rawValue = actualValues[element]
-                    ?: return fail(ERROR_MISSING_DEVICE_VALUES, issuer, docType)
+                    ?: return fail(ERROR_MISSING_DEVICE_VALUES, docType)
 
                 val computed = messageDigest.digest(rawValue)
                 if (!computed.contentEquals(expectedDigest)) {
                     Logger.w(TAG, "Digest mismatch for $namespace/$element")
-                    return fail(ERROR_DEVICE_DATA_TAMPERED, issuer, docType)
+                    return fail(ERROR_DEVICE_DATA_TAMPERED, docType)
                 }
             }
         }
@@ -190,19 +203,19 @@ open class VerifierService constructor(
         trustStale: Boolean?,
         parsed: ParsedMdoc,
         error: String,
-        issuerOverride: String? = null,
         docTypeOverride: String? = null,
     ): VerificationResult {
+        val sanitizedError = sanitizeReasonCode(error)
         val result = VerificationResult(
             success = false,
             ageOver21 = parsed.ageOver21,
-            issuer = issuerOverride ?: parsed.issuer,
-            subjectDid = parsed.subjectDid,
+            issuer = null,
+            subjectDid = null,
             docType = docTypeOverride ?: parsed.docType,
-            error = error,
+            error = sanitizedError,
             trustStale = trustStale,
         )
-        logVerificationEvent(startTimeMs, success = false, reasonCode = error, trustStale = trustStale)
+        logVerificationEvent(startTimeMs, success = false, reasonCode = sanitizedError, trustStale = trustStale)
         return result
     }
 
@@ -351,19 +364,52 @@ open class VerifierService constructor(
     private fun validateCertificateChain(
         chainBytes: List<ByteArray>,
         trustAnchor: X509Certificate
-    ): Boolean {
+    ): List<X509Certificate>? {
         if (chainBytes.isEmpty()) {
             Logger.w(TAG, "Issuer auth missing certificate chain")
-            return false
+            return null
         }
 
         val decoded = mutableListOf<X509Certificate>()
         for (entry in chainBytes) {
-            val certificate = decodeCertificateBytes(entry) ?: return false
+            val certificate = decodeCertificateBytes(entry) ?: return null
             decoded.add(certificate)
         }
 
-        return decoded.any { it.encoded.contentEquals(trustAnchor.encoded) }
+        val anchorEncoding = trustAnchor.encoded
+        val certFactory = CertificateFactory.getInstance("X.509")
+        val anchor = TrustAnchor(trustAnchor, null)
+        val trustAnchors = setOf(anchor)
+        val intermediates = decoded.filterNot { it.encoded.contentEquals(anchorEncoding) }
+
+        return try {
+            val certPath = certFactory.generateCertPath(intermediates)
+            val parameters = PKIXParameters(trustAnchors).apply { isRevocationEnabled = false }
+            CertPathValidator.getInstance("PKIX").validate(certPath, parameters)
+            if (decoded.none { it.encoded.contentEquals(anchorEncoding) }) {
+                decoded.add(trustAnchor)
+            }
+            decoded
+        } catch (throwable: Throwable) {
+            Logger.e(TAG, "Issuer authentication chain validation failed", throwable)
+            null
+        }
+    }
+
+    private fun isCertificateRevoked(
+        certificateChain: List<X509Certificate>,
+        revokedSerials: Set<String>,
+    ): Boolean {
+        if (revokedSerials.isEmpty()) {
+            return false
+        }
+        for (certificate in certificateChain) {
+            val serialHex = certificate.serialNumber.toString(16).uppercase(Locale.US)
+            if (revokedSerials.contains(serialHex)) {
+                return true
+            }
+        }
+        return false
     }
 
     private fun extractDevicePublicKey(mso: CBORObject): PublicKey? {
@@ -620,6 +666,7 @@ open class VerifierService constructor(
         private const val P256_COORDINATE_LENGTH = 32
         private const val VERIFICATION_EVENT = "verification_completed"
         private const val REASON_OK = "OK"
+        private val REASON_CODE_REGEX = Regex("^[A-Z0-9_]+$")
 
         const val ERROR_NOT_IMPLEMENTED = "NOT_IMPLEMENTED"
         const val ERROR_TRUST_LIST_UNAVAILABLE = "TRUST_LIST_UNAVAILABLE"
@@ -635,9 +682,18 @@ open class VerifierService constructor(
         const val ERROR_MISSING_DEVICE_VALUES = "MISSING_DEVICE_VALUES"
         const val ERROR_DEVICE_DATA_TAMPERED = "DEVICE_DATA_TAMPERED"
         const val ERROR_ISSUER_AUTH_CHAIN_MISMATCH = "ISSUER_AUTH_CHAIN_MISMATCH"
+        const val ERROR_CERTIFICATE_REVOKED = "CERTIFICATE_REVOKED"
         const val ERROR_INVALID_DEVICE_KEY_INFO = "INVALID_DEVICE_KEY_INFO"
         const val ERROR_MALFORMED_DEVICE_SIGNED = "MALFORMED_DEVICE_SIGNED"
         const val ERROR_INVALID_DEVICE_SIGNATURE = "INVALID_DEVICE_SIGNATURE"
         const val ERROR_DEVICE_DATA_MISMATCH = "DEVICE_DATA_MISMATCH"
+        const val ERROR_CLIENT_EXCEPTION = "CLIENT_EXCEPTION"
+        const val ERROR_DEVICE_INTEGRITY = "DEVICE_INTEGRITY_FAILED"
+
+        internal fun sanitizeReasonCode(reason: String?): String? {
+            if (reason.isNullOrBlank()) return null
+            val normalized = reason.uppercase(Locale.US)
+            return if (REASON_CODE_REGEX.matches(normalized)) normalized else ERROR_CLIENT_EXCEPTION
+        }
     }
 }

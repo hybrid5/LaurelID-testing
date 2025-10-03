@@ -1,9 +1,9 @@
 package com.laurelid.util
 
 import android.app.KeyguardManager
-import android.app.admin.DevicePolicyManager // Added
-import android.content.Context // Added
-import android.os.Build // Added for API level checks potentially
+import android.app.admin.DevicePolicyManager
+import android.content.Context
+import android.os.Build
 import android.view.View
 import android.view.Window
 import android.view.WindowManager
@@ -14,6 +14,8 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 
 object KioskUtil {
+
+    private const val TAG = "KioskUtil"
 
     fun applyKioskDecor(window: Window) {
         keepScreenOn(window)
@@ -71,28 +73,37 @@ object KioskUtil {
         controller.show(WindowInsetsCompat.Type.systemBars())
     }
 
-    // Added function
     fun isLockTaskPermitted(context: Context): Boolean {
-        val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
-        // A simple check could be if the app is a device owner or profile owner of an affiliated user.
-        // For full lock task mode without user interaction, being a device owner is typical.
-        // On Android P and above, specific lock task features require the app to be whitelisted
-        // by the DPC (Device Policy Controller) if it's not the DPC itself.
+        val dpm = context.getSystemService(DevicePolicyManager::class.java) ?: return false
+        val packageName = context.packageName
         return try {
-            dpm.isDeviceOwnerApp(context.packageName) || dpm.isProfileOwnerApp(context.packageName)
-            // More robust check for specific lock task features:
-            // if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            //    dpm.isLockTaskPermitted(context.packageName)
-            // } else {
-            //    // On older versions, being device owner was often enough
-            //    dpm.isDeviceOwnerApp(context.packageName)
-            // }
+            dpm.isLockTaskPermitted(packageName)
         } catch (e: SecurityException) {
-            // This might happen if querying device/profile owner status without proper setup.
-            Logger.e("KioskUtil", "SecurityException checking lock task permission", e)
+            Logger.e(TAG, "SecurityException checking lock task permission", e)
             false
         } catch (e: Exception) {
-            Logger.e("KioskUtil", "Exception checking lock task permission", e)
+            Logger.e(TAG, "Exception checking lock task permission", e)
+            false
+        }
+    }
+
+    fun startLockTaskIfPermitted(
+        activity: ComponentActivity,
+        lockTaskPermitted: Boolean? = null,
+    ): Boolean {
+        val permitted = lockTaskPermitted ?: isLockTaskPermitted(activity)
+        if (!permitted) {
+            Logger.i(TAG, "Lock task not permitted for package ${activity.packageName}")
+            return false
+        }
+        return try {
+            activity.startLockTask()
+            true
+        } catch (e: SecurityException) {
+            Logger.w(TAG, "Lock task not permitted by system", e)
+            false
+        } catch (e: IllegalStateException) {
+            Logger.w(TAG, "Unable to enter lock task mode", e)
             false
         }
     }

@@ -8,15 +8,14 @@ Update the trust list host by editing the `TRUST_LIST_BASE_URL` build config fie
 - Enter the default admin PIN (`123456`) to open the admin console.
 - Configure the venue ID, trust list refresh interval (minutes), optional API endpoint override, and toggle demo mode.
 - Settings persist via `SharedPreferences` and are applied the next time the scanner resumes.
-- Play Integrity attestation is wired into the admin console. The current stub always passes, but failed verdicts will block the
-  admin UI until the device passes a server-backed check.
+- Play Integrity attestation gates access to the admin console. Devices that fail verification
+  are blocked until they pass a server-backed check.
 
 ## Demo Mode
 Enabling demo mode from the admin console disables camera/NFC input and alternates between simulated 21+ and under-21 payloads. Each simulated verification is logged so operators know demo data was used.
 
 ## Log Retention
 Structured JSON verification logs are written to `/data/data/com.laurelid/files/logs/verify.log`. Logs older than 30 days are purged automatically on application startup.
-Update the trust list host by editing the `TRUST_LIST_BASE_URL` build config field inside `app/build.gradle.kts`. Staging builds allow entering an override URL in the admin settings screen; production builds ignore overrides. The Retrofit client and in-memory cache automatically use the new endpoint on the next verification attempt or explicit refresh.
 
 ## Device Owner Provisioning
 See [`DeviceOwnerSetup.md`](DeviceOwnerSetup.md) for the provisioning script and detailed checklist covering device owner promotion, lock-task dialog allowlisting, and kiosk recovery commands.

@@ -638,7 +638,7 @@ class ScannerActivity : AppCompatActivity() {
 
     companion object {
         private const val TAG = "ScannerActivity"
-        private const val ADMIN_HOLD_DURATION_MS = 3000L // Reduced from 5s for easier testing
+        private const val ADMIN_HOLD_DURATION_MS = 5000L // Matches documented five-second hold
         private const val DEMO_INTERVAL_MS = 3000L // Interval for demo mode payloads
 
         @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)

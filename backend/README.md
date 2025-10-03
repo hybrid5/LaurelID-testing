@@ -15,8 +15,10 @@ aggregate statistics, and enforcing a 30-day anonymization policy.
 
 - Python 3.10+
 - A virtual environment is recommended.
-- Set the `INGESTION_JWT_SECRET` environment variable to the shared secret used for JWT
-  signature verification.
+- Configure the authentication environment variables expected by the API:
+  - `INGESTION_JWT_JWKS_URL` – HTTPS URL where the RSA public keys (JWKS) are hosted.
+  - `INGESTION_JWT_ISSUER` – Expected issuer claim in incoming JWTs.
+  - `INGESTION_JWT_AUDIENCE` – Expected audience claim in incoming JWTs.
 
 ## Installation
 
@@ -30,7 +32,9 @@ pip install -r requirements.txt
 ## Running the server
 
 ```bash
-export INGESTION_JWT_SECRET="super-secret-key"
+export INGESTION_JWT_JWKS_URL="https://auth.example.com/.well-known/jwks.json"
+export INGESTION_JWT_ISSUER="https://auth.example.com/"
+export INGESTION_JWT_AUDIENCE="laurel-ingestion"
 uvicorn app.main:app --reload
 ```
 
@@ -39,26 +43,37 @@ at `/docs` (Swagger UI) and `/redoc`.
 
 ## Generating tokens for testing
 
-The API expects clients to send a bearer token signed with the same secret and using the
-`HS256` algorithm. The payload can contain any claims required by the kiosk network. Below is
-an example using Python and `pyjwt`:
+Authentication relies on RS256-signed JWTs whose public keys are served from the configured
+JWKS endpoint. For local testing you can generate a key pair and host the JWKS with a mock
+server. The snippet below shows how to mint a token using `pyjwt` and an RSA private key that
+corresponds to the JWKS entry (the `kid` header must match):
 
 ```python
 import jwt
+from pathlib import Path
 
-secret = "super-secret-key"
-claims = {"sub": "kiosk-client-1"}
-token = jwt.encode(claims, secret, algorithm="HS256")
+private_key = Path("private.pem").read_text()
+
+claims = {
+    "sub": "kiosk-client-1",
+    "aud": "laurel-ingestion",
+    "iss": "https://auth.example.com/",
+    "nonce": "unique-request-id",
+    "device_integrity": "MEETS_DEVICE_INTEGRITY",
+}
+
+token = jwt.encode(claims, private_key, algorithm="RS256", headers={"kid": "primary"})
 print(token)
 ```
 
 ## Sample client
 
-A minimal integration example is provided under `examples/send_event.py`. Configure the
-`API_URL` and `JWT_TOKEN` constants before running it:
+A minimal integration example is provided under `examples/send_event.py`. Supply the API URL
+and a valid JWT via CLI arguments or environment variables before running it:
 
 ```bash
-python examples/send_event.py
+python examples/send_event.py --api-url http://127.0.0.1:8000 --token "<jwt>"
+# or set INGESTION_API_URL / INGESTION_JWT_TOKEN and call python examples/send_event.py
 ```
 
 ## Database

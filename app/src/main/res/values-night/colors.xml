@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="gradient_start">#05070F</color>
+    <color name="gradient_center">#111E36</color>
+    <color name="gradient_end">#2A3B7A</color>
+    <color name="card_surface">#CC0A142F</color>
+    <color name="card_stroke">#40FFFFFF</color>
+    <color name="text_secondary_on_dark">#B3FFFFFF</color>
+    <color name="accent_glow">#4D3BDEFF</color>
+    <color name="button_primary">#45C7BE</color>
+    <color name="button_primary_pressed">#2C9E97</color>
+</resources>

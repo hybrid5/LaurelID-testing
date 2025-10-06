@@ -1,20 +1,37 @@
 package com.laurelid.util
 
 import com.google.android.gms.tasks.Task
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
-suspend fun <T> Task<T>.await(): T = suspendCancellableCoroutine { continuation ->
+suspend fun <T> Task<T>.await(): T = suspendCancellableCoroutine { cont ->
+    // Complete (success / failure)
     addOnCompleteListener { task ->
-        if (continuation.isCancelled) return@addOnCompleteListener
+        if (cont.isCancelled) return@addOnCompleteListener
+
+        if (task.isCanceled) {
+            cont.cancel(CancellationException("Task was cancelled"))
+            return@addOnCompleteListener
+        }
+
         val exception = task.exception
         if (exception != null) {
-            continuation.resumeWithException(exception)
+            cont.resumeWithException(exception)
         } else {
             @Suppress("UNCHECKED_CAST")
-            continuation.resume(task.result as T)
+            cont.resume(task.result as T)
         }
     }
-    continuation.invokeOnCancellation { cancel() }
+
+    // If the Google Task gets canceled, cancel the coroutine as well.
+    addOnCanceledListener {
+        if (cont.isActive) {
+            cont.cancel(CancellationException("Task was cancelled"))
+        }
+    }
+
+    // Note: There's no general way to cancel a Google Task from coroutine cancellation here.
+    // For APIs that accept a CancellationToken, wire that up at call site.
 }

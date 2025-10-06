@@ -5,6 +5,7 @@ import androidx.room.Database
 import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import android.database.sqlite.SQLiteDatabase
 
 @Database(
     entities = [VerificationEntity::class],
@@ -75,7 +76,7 @@ abstract class AppDb : RoomDatabase() {
                         }
                         database.insert(
                             "verification_log_new",
-                            SupportSQLiteDatabase.CONFLICT_REPLACE,
+                            SQLiteDatabase.CONFLICT_REPLACE, // <-- was SupportSQLiteDatabase.CONFLICT_REPLACE
                             values,
                         )
                     }

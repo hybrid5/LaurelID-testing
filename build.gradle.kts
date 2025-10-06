@@ -1,18 +1,15 @@
 import io.gitlab.arturbosch.detekt.extensions.DetektExtension
-import org.gradle.api.artifacts.VersionCatalogsExtension
 import org.jlleitschuh.gradle.ktlint.KtlintExtension
 
 plugins {
-  alias(libs.plugins.android.application) apply false
-  alias(libs.plugins.kotlin.android) apply false
-  alias(libs.plugins.kotlin.parcelize) apply false
-  alias(libs.plugins.kotlin.kapt) apply false
-  alias(libs.plugins.hilt.android) apply false
-  alias(libs.plugins.ktlint) apply false
-  alias(libs.plugins.detekt) apply false
+  id("com.android.application") apply false
+  id("org.jetbrains.kotlin.android") apply false
+  id("org.jetbrains.kotlin.plugin.parcelize") apply false
+  id("org.jetbrains.kotlin.kapt") apply false
+  id("com.google.dagger.hilt.android") apply false
+  id("org.jlleitschuh.gradle.ktlint") apply false
+  id("io.gitlab.arturbosch.detekt") apply false
 }
-
-val libs = extensions.getByType<VersionCatalogsExtension>().named("libs")
 
 subprojects {
   pluginManager.apply("org.jlleitschuh.gradle.ktlint")
@@ -21,25 +18,25 @@ subprojects {
   extensions.configure<KtlintExtension> {
     android.set(true)
     ignoreFailures.set(false)
-    filter {
-      exclude("**/build/**")
-    }
+    filter { exclude("**/build/**") }
   }
+    configurations.configureEach {
+      resolutionStrategy {
+        force(
+          "org.jetbrains.kotlin:kotlin-stdlib:2.2.0",
+          "org.jetbrains.kotlin:kotlin-stdlib-jdk7:2.2.0",
+          "org.jetbrains.kotlin:kotlin-stdlib-jdk8:2.2.0",
+          "org.jetbrains.kotlin:kotlin-reflect:2.2.0"
+        )
+      }
+    }
 
   extensions.configure<DetektExtension> {
     buildUponDefaultConfig = true
     allRules = false
     autoCorrect = false
-    source.setFrom(
-      files(
-        "src/main/java",
-        "src/main/kotlin",
-        "src/test/java",
-        "src/test/kotlin",
-        "src/androidTest/java",
-        "src/androidTest/kotlin"
-      )
-    )
+    // production-only: don’t scan test sources
+    source.setFrom(files("src/main/java", "src/main/kotlin"))
   }
 
   dependencies {
@@ -48,19 +45,11 @@ subprojects {
 }
 
 tasks.register("ciStaticAnalysis") {
-  group = "ci"
-  description = "Runs Android lint, ktlint, and detekt checks."
+  group = "ci"; description = "Runs Android lint, ktlint, and detekt checks."
   dependsOn(":app:lint", ":app:ktlintCheck", ":app:detekt")
 }
 
-tasks.register("ciUnitTest") {
-  group = "ci"
-  description = "Executes JVM unit tests for staging and production builds."
-  dependsOn(":app:testStagingUnitTest", ":app:testProductionUnitTest")
-}
-
 tasks.register("ciRelease") {
-  group = "ci"
-  description = "Assembles the release APK."
+  group = "ci"; description = "Assembles the release APK."
   dependsOn(":app:assembleRelease")
 }

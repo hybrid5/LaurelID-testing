@@ -3,10 +3,12 @@ package com.laurelid.integrity
 import android.content.Context
 import android.util.Base64
 import android.util.Log
-import com.google.android.gms.play.integrity.IntegrityManagerFactory
-import com.google.android.gms.play.integrity.StandardIntegrityManager
-import com.google.android.gms.play.integrity.StandardIntegrityManager.PrepareIntegrityTokenRequest
-import com.google.android.gms.play.integrity.StandardIntegrityManager.PrepareIntegrityTokenResponse
+import com.google.android.play.core.integrity.IntegrityManagerFactory
+import com.google.android.play.core.integrity.StandardIntegrityManager
+import com.google.android.play.core.integrity.StandardIntegrityManager.PrepareIntegrityTokenRequest
+import com.google.android.play.core.integrity.StandardIntegrityManager.StandardIntegrityToken
+import com.google.android.play.core.integrity.StandardIntegrityManager.StandardIntegrityTokenProvider
+import com.google.android.play.core.integrity.StandardIntegrityManager.StandardIntegrityTokenRequest
 import com.google.android.gms.tasks.Tasks
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -21,7 +23,8 @@ class PlayIntegrityHelper(
     private val projectNumberProvider: ProjectNumberProvider = BuildConfigProjectNumberProvider(),
     private val nonceGenerator: NonceGenerator = NonceGenerator(),
     private val integrityManagerProvider: (Context) -> StandardIntegrityManager = { appContext ->
-        IntegrityManagerFactory.create(appContext).standardIntegrityManager()
+        // Standard Integrity manager (Play Core)
+        IntegrityManagerFactory.createStandard(appContext)
     },
 ) : PlayIntegrityVerdictProvider {
 
@@ -35,27 +38,33 @@ class PlayIntegrityHelper(
         return withContext(Dispatchers.IO) {
             try {
                 val manager = integrityManagerProvider(context)
-                val request = PrepareIntegrityTokenRequest.builder()
+
+                // Step 1: Prepare (bind to your Play Console project)
+                val prepareReq = PrepareIntegrityTokenRequest.builder()
                     .setCloudProjectNumber(projectNumber)
+                    .build()
+                val provider: StandardIntegrityTokenProvider =
+                    Tasks.await(manager.prepareIntegrityToken(prepareReq))
+
+                // Step 2: Request (per-request hash/nonce)
+                val tokenReq = StandardIntegrityTokenRequest.builder()
                     .setRequestHash(nonceGenerator.generateRequestHash())
                     .build()
-                val response = Tasks.await(manager.prepareIntegrityToken(request))
-                mapVerdict(response)
-            } catch (throwable: Throwable) {
-                Log.e(TAG, "Failed to obtain Play Integrity verdict", throwable)
+                val token: StandardIntegrityToken = Tasks.await(provider.request(tokenReq))
+
+                // On-device we can't interpret the token; your server must verify it with Google.
+                mapVerdict(token)
+            } catch (t: Throwable) {
+                Log.e(TAG, "Failed to obtain Play Integrity token/verdict", t)
                 PlayIntegrityVerdict.UNKNOWN
             }
         }
     }
 
-    private fun mapVerdict(response: PrepareIntegrityTokenResponse): PlayIntegrityVerdict {
-        return when (response.deviceIntegrity()) {
-            PrepareIntegrityTokenResponse.DEVICE_INTEGRITY_MEETS_DEVICE_INTEGRITY ->
-                PlayIntegrityVerdict.MEETS_DEVICE_INTEGRITY
-            PrepareIntegrityTokenResponse.DEVICE_INTEGRITY_FAILED ->
-                PlayIntegrityVerdict.FAILED_DEVICE_INTEGRITY
-            else -> PlayIntegrityVerdict.UNKNOWN
-        }
+    private fun mapVerdict(@Suppress("UNUSED_PARAMETER") token: StandardIntegrityToken): PlayIntegrityVerdict {
+        // Standard Integrity doesn't expose the verdict client-side.
+        // Return UNKNOWN here; server verification should decide pass/fail.
+        return PlayIntegrityVerdict.UNKNOWN
     }
 
     class NonceGenerator(
@@ -64,7 +73,10 @@ class PlayIntegrityHelper(
         fun generateRequestHash(): String {
             val nonce = ByteArray(NONCE_LENGTH_BYTES)
             secureRandom.nextBytes(nonce)
-            return Base64.encodeToString(nonce, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
+            return Base64.encodeToString(
+                nonce,
+                Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING
+            )
         }
 
         private companion object {

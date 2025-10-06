@@ -21,7 +21,6 @@ import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.activity.viewModels
 import androidx.annotation.VisibleForTesting
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
@@ -32,6 +31,7 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.google.mlkit.vision.barcode.BarcodeScanning
@@ -70,7 +70,8 @@ import javax.inject.Named
 @AndroidEntryPoint
 class ScannerActivity : AppCompatActivity() {
 
-    private val viewModel: ScannerViewModel by viewModels()
+    // Replaced `by viewModels()` with ViewModelProvider to avoid the unresolved reference
+    private lateinit var viewModel: ScannerViewModel
 
     private lateinit var previewView: PreviewView
     private lateinit var statusText: TextView
@@ -135,6 +136,9 @@ class ScannerActivity : AppCompatActivity() {
         KioskUtil.prepareForLockscreen(this)
         KioskUtil.applyKioskDecor(window)
         KioskUtil.blockBackPress(this)
+
+        // Initialize ViewModel via ViewModelProvider (works with Hilt due to @AndroidEntryPoint)
+        viewModel = ViewModelProvider(this)[ScannerViewModel::class.java]
 
         configManager = ConfigManager(applicationContext)
         adminPinManager = AdminPinManager(EncryptedAdminPinStorage(applicationContext))
@@ -203,9 +207,9 @@ class ScannerActivity : AppCompatActivity() {
         }
     }
 
-    override fun onNewIntent(intent: Intent) { // Changed to non-nullable Intent
+    override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        setIntent(intent) // Update the activity's intent
+        setIntent(intent)
         if (!currentConfig.demoMode) {
             processNfcIntent(intent)
         }
@@ -266,7 +270,7 @@ class ScannerActivity : AppCompatActivity() {
                     adminTouchHandler.removeCallbacksAndMessages(null)
                 }
             }
-            true // Consume event
+            true
         }
         rootLayout?.setOnTouchListener(touchListener)
     }
@@ -333,7 +337,7 @@ class ScannerActivity : AppCompatActivity() {
             hint = getString(R.string.admin_pin_hint)
         }
         val container = FrameLayout(this).apply {
-            val padding = (16 * resources.displayMetrics.density).toInt() // 16dp
+            val padding = (16 * resources.displayMetrics.density).toInt()
             setPadding(padding, padding, padding, padding)
             addView(input, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT))
         }
@@ -423,7 +427,7 @@ class ScannerActivity : AppCompatActivity() {
             shouldShowRequestPermissionRationale(Manifest.permission.CAMERA) -> {
                 AlertDialog.Builder(this)
                     .setTitle(R.string.camera_permission_title)
-                    .setMessage(R.string.camera_permission_rationale) // String resource directly
+                    .setMessage(R.string.camera_permission_rationale)
                     .setPositiveButton(android.R.string.ok) { _, _ -> permissionLauncher.launch(Manifest.permission.CAMERA) }
                     .setNegativeButton(android.R.string.cancel, null)
                     .show()
@@ -524,7 +528,7 @@ class ScannerActivity : AppCompatActivity() {
     private fun navigateToResult(result: VerificationResult) {
         if (isFinishing) return
         val intent = Intent(this, ResultActivity::class.java).apply {
-            putExtra(ResultActivity.EXTRA_VERIFICATION_RESULT, result) // Assuming ResultActivity.EXTRA_VERIFICATION_RESULT and VerificationResult is Parcelable
+            putExtra(ResultActivity.EXTRA_VERIFICATION_RESULT, result)
         }
         startActivity(intent)
     }
@@ -571,9 +575,10 @@ class ScannerActivity : AppCompatActivity() {
             return
         }
         if (nfcPendingIntent == null) {
-            val intent = Intent(this, javaClass).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            val intent = Intent(this, java.lang.Class.forName(this::class.qualifiedName!!))
+                .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
             val flags = PendingIntent.FLAG_UPDATE_CURRENT or
-                (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) PendingIntent.FLAG_MUTABLE else 0)
+                    (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) PendingIntent.FLAG_MUTABLE else 0)
             nfcPendingIntent = PendingIntent.getActivity(this, 0, intent, flags)
         }
 
@@ -638,8 +643,8 @@ class ScannerActivity : AppCompatActivity() {
 
     companion object {
         private const val TAG = "ScannerActivity"
-        private const val ADMIN_HOLD_DURATION_MS = 5000L // Matches documented five-second hold
-        private const val DEMO_INTERVAL_MS = 3000L // Interval for demo mode payloads
+        private const val ADMIN_HOLD_DURATION_MS = 5000L
+        private const val DEMO_INTERVAL_MS = 3000L
 
         @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
         internal fun shouldEnterLockTask(config: AdminConfig, lockTaskPermitted: Boolean): Boolean {

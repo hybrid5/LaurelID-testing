@@ -1,7 +1,6 @@
 package com.laurelid.auth
 
 import com.laurelid.auth.deviceengagement.DeviceEngagementParser
-import com.laurelid.auth.deviceengagement.DeviceEngagementTransportFactory
 import com.laurelid.auth.deviceengagement.TransportFactory
 import com.laurelid.auth.deviceengagement.TransportMessage
 import com.laurelid.util.Logger
@@ -12,12 +11,9 @@ import javax.inject.Inject
  */
 
 class ISO18013Parser @Inject constructor(
-    private val engagementParser: DeviceEngagementParser = DeviceEngagementParser(),
-    private val transportFactory: TransportFactory = DeviceEngagementTransportFactory(),
-    private val deviceResponseParser: DeviceResponseParser = DeviceResponseParser(
-        defaultDocType = DEFAULT_DOC_TYPE,
-        defaultIssuer = DEFAULT_ISSUER
-    )
+    private val engagementParser: DeviceEngagementParser,
+    private val transportFactory: TransportFactory,
+    private val deviceResponseParser: DeviceResponseParser
 ) {
 
     fun parseFromQrPayload(payload: String): ParsedMdoc {

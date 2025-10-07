@@ -103,7 +103,6 @@ android {
     sourceCompatibility = JavaVersion.VERSION_17
     targetCompatibility = JavaVersion.VERSION_17
   }
-  kotlinOptions { jvmTarget = "17" }
 
   // Optional: common packaging excludes (COSE/CBOR deps sometimes ship extra notices)
   packaging {
@@ -113,7 +112,10 @@ android {
   }
 }
 
-kotlin { jvmToolchain(17) }
+kotlin {
+  jvmToolchain(17)
+  compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) }
+}
 
 kapt { correctErrorTypes = true }
 
@@ -154,6 +156,6 @@ dependencies {
   implementation("com.google.mlkit:barcode-scanning:17.3.0")
 
   // Play Integrity
-  implementation("com.google.android.play:integrity:1.5.0")
+  implementation(libs.play.integrity)
   implementation("com.google.android.gms:play-services-tasks:18.4.0")
 }

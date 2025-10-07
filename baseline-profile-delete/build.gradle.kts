@@ -1,3 +1,5 @@
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
 plugins {
     alias(libs.plugins.kotlin.android)
     id("com.android.test")
@@ -6,11 +8,11 @@ plugins {
 
 android {
     namespace = "com.laurelid.baselineprofile"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         minSdk = 26
-        targetSdk = 35
+        targetSdk = 36
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -23,10 +25,6 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = "17"
-    }
-
     buildTypes {
         create("release") {
             matchingFallbacks += "release"
@@ -34,6 +32,13 @@ android {
         create("nonMinifiedRelease") {
             matchingFallbacks += "release"
         }
+    }
+}
+
+kotlin {
+    jvmToolchain(17)
+    compilerOptions {
+        jvmTarget.set(JvmTarget.JVM_17)
     }
 }
 

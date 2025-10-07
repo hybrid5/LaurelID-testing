@@ -1,12 +1,15 @@
 package com.laurelid.util
 
 import android.util.Log
+import com.laurelid.BuildConfig
 
 object Logger {
     private const val GLOBAL_TAG = "LaurelID"
 
     fun d(tag: String, message: String) {
-        Log.d("$GLOBAL_TAG:$tag", message)
+        if (BuildConfig.DEBUG) {
+            Log.d("$GLOBAL_TAG:$tag", message)
+        }
     }
 
     fun i(tag: String, message: String) {

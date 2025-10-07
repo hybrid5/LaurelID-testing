@@ -72,11 +72,6 @@ class ResultActivity : AppCompatActivity() {
         }
     }
 
-    override fun onBackPressed() {
-        // Disable back navigation while in kiosk mode.
-        // KioskUtil.blockBackPress(this) also handles this in onCreate.
-    }
-
     private fun bindResult() {
         val result = verificationResult ?: return // Should not happen due to check in onCreate
 

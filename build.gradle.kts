@@ -1,5 +1,6 @@
 import io.gitlab.arturbosch.detekt.extensions.DetektExtension
 import org.jlleitschuh.gradle.ktlint.KtlintExtension
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.dsl.KotlinAndroidProjectExtension
 import org.jetbrains.kotlin.gradle.dsl.KotlinJvmProjectExtension
 
@@ -21,11 +22,17 @@ subprojects {
   plugins.withId("org.jetbrains.kotlin.android") {
     extensions.configure<KotlinAndroidProjectExtension> {
       jvmToolchain(17)
+      compilerOptions {
+        jvmTarget.set(JvmTarget.JVM_17)
+      }
     }
   }
   plugins.withId("org.jetbrains.kotlin.jvm") {
     extensions.configure<KotlinJvmProjectExtension> {
       jvmToolchain(17)
+      compilerOptions {
+        jvmTarget.set(JvmTarget.JVM_17)
+      }
     }
   }
 
@@ -44,7 +51,7 @@ subprojects {
   }
 
   dependencies {
-    add("detektPlugins", "io.gitlab.arturbosch.detekt:detekt-formatting:1.23.6")
+    add("detektPlugins", "io.gitlab.arturbosch.detekt:detekt-formatting:1.23.8")
   }
 }
 

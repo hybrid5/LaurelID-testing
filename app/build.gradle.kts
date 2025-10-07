@@ -17,10 +17,13 @@ android {
     targetSdk = 36
     versionCode = 1
     versionName = "1.0"
+
     buildConfigField("long", "PLAY_INTEGRITY_PROJECT_NUMBER", "0L")
   }
 
-  flavorDimensions += "environment"
+  // Flavor dimension
+  flavorDimensions += listOf("environment")
+
   productFlavors {
     create("staging") {
       dimension = "environment"
@@ -51,20 +54,22 @@ android {
     buildConfig = true
   }
 
-  val releaseSigning = signingConfigs.create("release") {
-    val keystorePath = System.getenv("LAURELID_RELEASE_KEYSTORE")
-      ?: project.findProperty("laurelIdReleaseKeystore") as? String
-    val keystorePassword = System.getenv("LAURELID_RELEASE_KEYSTORE_PASSWORD")
-      ?: project.findProperty("laurelIdReleaseKeystorePassword") as? String
-    val keyAliasValue = System.getenv("LAURELID_RELEASE_KEY_ALIAS")
-      ?: project.findProperty("laurelIdReleaseKeyAlias") as? String
-    val keyPasswordValue = System.getenv("LAURELID_RELEASE_KEY_PASSWORD")
-      ?: project.findProperty("laurelIdReleaseKeyPassword") as? String
+  signingConfigs {
+    create("release") {
+      val keystorePath = System.getenv("LAURELID_RELEASE_KEYSTORE")
+        ?: project.findProperty("laurelIdReleaseKeystore") as? String
+      val keystorePassword = System.getenv("LAURELID_RELEASE_KEYSTORE_PASSWORD")
+        ?: project.findProperty("laurelIdReleaseKeystorePassword") as? String
+      val keyAliasValue = System.getenv("LAURELID_RELEASE_KEY_ALIAS")
+        ?: project.findProperty("laurelIdReleaseKeyAlias") as? String
+      val keyPasswordValue = System.getenv("LAURELID_RELEASE_KEY_PASSWORD")
+        ?: project.findProperty("laurelIdReleaseKeyPassword") as? String
 
-    if (!keystorePath.isNullOrBlank()) storeFile = file(keystorePath)
-    storePassword = keystorePassword
-    keyAlias = keyAliasValue
-    keyPassword = keyPasswordValue
+      if (!keystorePath.isNullOrBlank()) storeFile = file(keystorePath)
+      storePassword = keystorePassword
+      keyAlias = keyAliasValue
+      keyPassword = keyPasswordValue
+    }
   }
 
   buildTypes {
@@ -72,16 +77,25 @@ android {
       isMinifyEnabled = true
       isShrinkResources = true
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-      val hasReleaseSigning = releaseSigning.storeFile != null &&
-              !releaseSigning.keyAlias.isNullOrBlank() &&
-              !releaseSigning.storePassword.isNullOrBlank() &&
-              !releaseSigning.keyPassword.isNullOrBlank()
-      signingConfig = if (hasReleaseSigning) releaseSigning else signingConfigs.getByName("debug")
-      buildConfigField("boolean","USE_APPLE_EXTERNAL_VERIFIER","false")
+
+      // Use release signing if fully configured; else fall back to debug signing.
+      val releaseSig = signingConfigs.getByName("release")
+      val hasReleaseSigning =
+        (releaseSig.storeFile != null) &&
+                !releaseSig.keyAlias.isNullOrBlank() &&
+                !releaseSig.storePassword.isNullOrBlank() &&
+                !releaseSig.keyPassword.isNullOrBlank()
+      signingConfig = if (hasReleaseSigning) releaseSig else signingConfigs.getByName("debug")
+
+      // Integrity gate ON for release
+      buildConfigField("boolean","INTEGRITY_GATE_ENABLED","true")
+      // (Keep USE_APPLE_EXTERNAL_VERIFIER defined in flavors)
     }
     getByName("debug") {
       isMinifyEnabled = false
-      buildConfigField("boolean","USE_APPLE_EXTERNAL_VERIFIER","true")
+      // Integrity gate OFF for debug to allow local testing
+      buildConfigField("boolean","INTEGRITY_GATE_ENABLED","false")
+      // (Do not redeclare USE_APPLE_EXTERNAL_VERIFIER here)
     }
   }
 
@@ -90,6 +104,13 @@ android {
     targetCompatibility = JavaVersion.VERSION_17
   }
   kotlinOptions { jvmTarget = "17" }
+
+  // Optional: common packaging excludes (COSE/CBOR deps sometimes ship extra notices)
+  packaging {
+    resources {
+      excludes += setOf("/META-INF/{AL2.0,LGPL2.1}")
+    }
+  }
 }
 
 kotlin { jvmToolchain(17) }
@@ -122,17 +143,17 @@ dependencies {
   implementation(libs.androidx.lifecycle.runtime.ktx)
 
   // CBOR / COSE
-  implementation(libs.cbor) // upokecenter CBOR
-  implementation(libs.cose) // augustcellars COSE
+  implementation(libs.cbor)  // upokecenter CBOR
+  implementation(libs.cose)  // augustcellars COSE
 
   // Hilt
   implementation(libs.hilt.android)
   kapt(libs.hilt.compiler)
 
-  // --- ML Kit (direct artifact; no BOM) ---
+  // ML Kit
   implementation("com.google.mlkit:barcode-scanning:17.3.0")
 
-  // --- Play Integrity (correct group) ---
+  // Play Integrity
   implementation("com.google.android.play:integrity:1.5.0")
   implementation("com.google.android.gms:play-services-tasks:18.4.0")
 }

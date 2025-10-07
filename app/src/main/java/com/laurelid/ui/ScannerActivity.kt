@@ -148,7 +148,8 @@ class ScannerActivity : AppCompatActivity() {
         rebuildNetworkDependencies(currentConfig, true) // Force initial build
         viewModel.updateConfig(currentConfig)
 
-        KioskWatchdogService.start(this)
+        // Android 14+: do NOT start foreground services here
+        // KioskWatchdogService.start(this)
         enterLockTaskIfPermitted()
 
         nfcAdapter = NfcAdapter.getDefaultAdapter(this)
@@ -165,6 +166,12 @@ class ScannerActivity : AppCompatActivity() {
             requestCameraPermission()
             processNfcIntent(intent)
         }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        // Safe point to start a foreground service (activity is visible/starting)
+        startWatchdogIfNeeded()
     }
 
     override fun onResume() {
@@ -575,7 +582,7 @@ class ScannerActivity : AppCompatActivity() {
             return
         }
         if (nfcPendingIntent == null) {
-            val intent = Intent(this, java.lang.Class.forName(this::class.qualifiedName!!))
+            val intent = Intent(this, ScannerActivity::class.java)
                 .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
             val flags = PendingIntent.FLAG_UPDATE_CURRENT or
                     (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) PendingIntent.FLAG_MUTABLE else 0)
@@ -649,6 +656,24 @@ class ScannerActivity : AppCompatActivity() {
         @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
         internal fun shouldEnterLockTask(config: AdminConfig, lockTaskPermitted: Boolean): Boolean {
             return !config.demoMode && lockTaskPermitted
+        }
+    }
+
+    /**
+     * Android 14+: Foreground services cannot be started from background/early app states.
+     * Start the watchdog only once the activity is visible.
+     */
+    private fun startWatchdogIfNeeded() {
+        try {
+            val intent = Intent(this, KioskWatchdogService::class.java)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                ContextCompat.startForegroundService(this, intent)
+            } else {
+                startService(intent)
+            }
+            Logger.i(TAG, "Watchdog start requested from ScannerActivity.onStart()")
+        } catch (t: Throwable) {
+            Logger.w(TAG, "Deferred watchdog start failed; will retry later.", t)
         }
     }
 }

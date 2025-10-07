@@ -1,5 +1,7 @@
 import io.gitlab.arturbosch.detekt.extensions.DetektExtension
 import org.jlleitschuh.gradle.ktlint.KtlintExtension
+import org.jetbrains.kotlin.gradle.dsl.KotlinAndroidProjectExtension
+import org.jetbrains.kotlin.gradle.dsl.KotlinJvmProjectExtension
 
 plugins {
   id("com.android.application") apply false
@@ -15,27 +17,29 @@ subprojects {
   pluginManager.apply("org.jlleitschuh.gradle.ktlint")
   pluginManager.apply("io.gitlab.arturbosch.detekt")
 
+  // ✅ Correct extensions per plugin
+  plugins.withId("org.jetbrains.kotlin.android") {
+    extensions.configure<KotlinAndroidProjectExtension> {
+      jvmToolchain(17)
+    }
+  }
+  plugins.withId("org.jetbrains.kotlin.jvm") {
+    extensions.configure<KotlinJvmProjectExtension> {
+      jvmToolchain(17)
+    }
+  }
+
   extensions.configure<KtlintExtension> {
     android.set(true)
     ignoreFailures.set(false)
     filter { exclude("**/build/**") }
   }
-    configurations.configureEach {
-      resolutionStrategy {
-        force(
-          "org.jetbrains.kotlin:kotlin-stdlib:2.2.0",
-          "org.jetbrains.kotlin:kotlin-stdlib-jdk7:2.2.0",
-          "org.jetbrains.kotlin:kotlin-stdlib-jdk8:2.2.0",
-          "org.jetbrains.kotlin:kotlin-reflect:2.2.0"
-        )
-      }
-    }
 
+  // Do NOT force kotlin-stdlib globally; let the toolchain handle it.
   extensions.configure<DetektExtension> {
     buildUponDefaultConfig = true
     allRules = false
     autoCorrect = false
-    // production-only: don’t scan test sources
     source.setFrom(files("src/main/java", "src/main/kotlin"))
   }
 

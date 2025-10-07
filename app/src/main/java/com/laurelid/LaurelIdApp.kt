@@ -2,7 +2,6 @@ package com.laurelid
 
 import android.app.Application
 import com.laurelid.kiosk.KioskDeviceOwnerManager
-import com.laurelid.kiosk.KioskWatchdogService
 import com.laurelid.observability.IEventExporter
 import com.laurelid.observability.StructuredEventLogger
 import com.laurelid.util.LogManager
@@ -19,18 +18,25 @@ import kotlinx.coroutines.launch
 class LaurelIdApp : Application() {
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    @Inject
-    lateinit var logManager: LogManager
-
-    @Inject
-    lateinit var eventExporter: IEventExporter
+    @Inject lateinit var logManager: LogManager
+    @Inject lateinit var eventExporter: IEventExporter
 
     override fun onCreate() {
         super.onCreate()
+
         Logger.i("App", "LaurelID kiosk application initialized")
+
+        // Register telemetry/logging safely
         StructuredEventLogger.registerExporter(eventExporter)
         KioskDeviceOwnerManager.enforcePolicies(this)
-        KioskWatchdogService.start(this)
+
+        // ⚠️ Do NOT start foreground services here on Android 14+
+        // The first visible activity (e.g., ScannerActivity.onStart) should call:
+        //   ContextCompat.startForegroundService(context, Intent(context, KioskWatchdogService::class.java))
+        // Instead of starting it here, just log readiness.
+        Logger.i("App", "Watchdog service startup deferred until activity is visible")
+
+        // Background log maintenance
         appScope.launch {
             logManager.purgeLegacyLogs()
             logManager.purgeOldLogs()

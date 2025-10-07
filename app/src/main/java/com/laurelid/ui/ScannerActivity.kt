@@ -20,6 +20,7 @@ import android.widget.FrameLayout
 import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.addCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.VisibleForTesting
 import androidx.appcompat.app.AlertDialog
@@ -136,6 +137,7 @@ class ScannerActivity : AppCompatActivity() {
         KioskUtil.prepareForLockscreen(this)
         KioskUtil.applyKioskDecor(window)
         KioskUtil.blockBackPress(this)
+        onBackPressedDispatcher.addCallback(this) { /* kiosk: no-op */ }
 
         // Initialize ViewModel via ViewModelProvider (works with Hilt due to @AndroidEntryPoint)
         viewModel = ViewModelProvider(this)[ScannerViewModel::class.java]
@@ -243,10 +245,6 @@ class ScannerActivity : AppCompatActivity() {
     override fun onUserInteraction() {
         super.onUserInteraction()
         KioskUtil.setImmersiveMode(window)
-    }
-
-    override fun onBackPressed() {
-        // Kiosk mode: back press is blocked by KioskUtil or by not calling super.onBackPressed()
     }
 
     private fun bindViews() {
@@ -666,11 +664,7 @@ class ScannerActivity : AppCompatActivity() {
     private fun startWatchdogIfNeeded() {
         try {
             val intent = Intent(this, KioskWatchdogService::class.java)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                ContextCompat.startForegroundService(this, intent)
-            } else {
-                startService(intent)
-            }
+            ContextCompat.startForegroundService(this, intent)
             Logger.i(TAG, "Watchdog start requested from ScannerActivity.onStart()")
         } catch (t: Throwable) {
             Logger.w(TAG, "Deferred watchdog start failed; will retry later.", t)

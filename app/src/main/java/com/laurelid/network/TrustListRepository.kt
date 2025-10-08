@@ -18,7 +18,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import kotlin.math.min
 
-open class TrustListRepository(
+open class TrustListRepository internal constructor(
     api: TrustListApi,
     private val cacheDir: File,
     private val defaultMaxAgeMillis: Long = DEFAULT_MAX_AGE_MILLIS,
@@ -95,7 +95,7 @@ open class TrustListRepository(
         val age = current?.let { nowMillis - it.fetchedAtMillis } ?: 0L
         val freshDuration = current?.let { combineDuration(maxAgeMillis, it.freshLifetimeMillis) }
         val isFresh = current != null && freshDuration != null &&
-            (freshDuration == Long.MAX_VALUE || age <= freshDuration)
+                (freshDuration == Long.MAX_VALUE || age <= freshDuration)
 
         if (isFresh && current != null) {
             Logger.d(TAG, "Returning in-memory trust list (fresh)")
@@ -514,7 +514,6 @@ open class TrustListRepository(
                 null
             }
         }
-    }
     }
 
     private fun clearDiskCacheLocked() {

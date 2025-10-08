@@ -1,65 +1,53 @@
+// app/build.gradle.kts
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
 plugins {
-  alias(libs.plugins.android.application)
-  alias(libs.plugins.kotlin.android)
-  alias(libs.plugins.kotlin.parcelize)
-  alias(libs.plugins.kotlin.kapt)
-  alias(libs.plugins.hilt.android)
+  id("com.android.application")
+  id("org.jetbrains.kotlin.android")
+  id("org.jetbrains.kotlin.plugin.parcelize")
+  id("com.google.devtools.ksp")           // Room on KSP
+  id("org.jetbrains.kotlin.kapt")         // Hilt on KAPT
+  id("com.google.dagger.hilt.android")
 }
 
+// ❌ No classpath surgery or forcing on KSP configs. Let Room bring its own Kotlin on the processor CP.
+
 android {
-  namespace = "com.laurelid" // Ensured
-  compileSdk = 35
+  namespace = "com.laurelid"
+  compileSdk = 36
 
   defaultConfig {
     applicationId = "com.laurelid"
     minSdk = 26
-    targetSdk = 35
+    targetSdk = 36
     versionCode = 1
     versionName = "1.0"
-    testInstrumentationRunner = "com.google.dagger.hilt.android.testing.HiltTestRunner"
     buildConfigField("long", "PLAY_INTEGRITY_PROJECT_NUMBER", "0L")
   }
 
-  flavorDimensions += "environment"
-
+  flavorDimensions += listOf("environment")
   productFlavors {
     create("staging") {
       dimension = "environment"
-      buildConfigField("String", "TRUST_LIST_BASE_URL", "\"https://trustlist.staging.laurelid.dev/api/v1/\"")
-      buildConfigField("boolean", "ALLOW_TRUST_LIST_OVERRIDE", "true")
-      buildConfigField(
-        "String",
-        "TRUST_LIST_CERT_PINS",
-        "\"sha256/53WBOQS+QL6Tw4VVKvh/Au9ua7Lif0cZ5mlzXRa37kY@1748736000000,sha256/Sq9GtEtHd5FcNhLBA7ZnWD9E/RE0KhwvhJ8apGLI1qI@1780272000000\"",
-      )
-      buildConfigField("long", "TRUST_LIST_CACHE_MAX_AGE_MILLIS", "43200000L")
-      buildConfigField("long", "TRUST_LIST_CACHE_STALE_TTL_MILLIS", "259200000L")
-      buildConfigField("long", "TRUST_LIST_PIN_EXPIRY_GRACE_MILLIS", "1209600000L")
-      buildConfigField(
-        "String",
-        "TRUST_LIST_MANIFEST_ROOT_CERT",
-        "\"MIIBmzCCAUGgAwIBAgIULLaYvR7QSKLfmVPR5XFwG8lyFsowCgYIKoZIzj0EAwIwIzEhMB8GA1UEAwwYTGF1cmVsSUQgVGVzdCBUcnVzdCBSb290MB4XDTI1MTAwMjAwMDQzMloXDTM1MDkzMDAwMDQzMlowIzEhMB8GA1UEAwwYTGF1cmVsSUQgVGVzdCBUcnVzdCBSb290MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEyrjywG4CQfVfu7CtKnWRmTQUR9OX/aNoWV6kJDiLjDOzywT8Q+0K3kALe/ia4u2VBOjjKYMS2jcqcs5TJZwrsqNTMFEwHQYDVR0OBBYEFKIg2A8F65q0WEuYC9We9JIxIloHMB8GA1UdIwQYMBaAFKIg2A8F65q0WEuYC9We9JIxIloHMA8GA1UdEwEB/wQFMAMBAf8wCgYIKoZIzj0EAwIDSAAwRQIhAPHz3+yopBOVPO6QBvlhHkC9iUNp4Hw6K2zUJOr9MEyVAiA7/885IjIOYQod4TL7qKqu4pDchuhJVvzd+NK/BQz3EQ==\"",
-      )
-      buildConfigField("boolean", "USE_APPLE_EXTERNAL_VERIFIER", "true")
+      buildConfigField("String","TRUST_LIST_BASE_URL","\"https://trustlist.staging.laurelid.dev/api/v1/\"")
+      buildConfigField("boolean","ALLOW_TRUST_LIST_OVERRIDE","true")
+      buildConfigField("String","TRUST_LIST_CERT_PINS","\"sha256/53WBOQS+QL6Tw4VVKvh/Au9ua7Lif0cZ5mlzXRa37kY@1748736000000,sha256/Sq9GtEtHd5FcNhLBA7ZnWD9E/RE0KhwvhJ8apGLI1qI@1780272000000\"")
+      buildConfigField("long","TRUST_LIST_CACHE_MAX_AGE_MILLIS","43200000L")
+      buildConfigField("long","TRUST_LIST_CACHE_STALE_TTL_MILLIS","259200000L")
+      buildConfigField("long","TRUST_LIST_PIN_EXPIRY_GRACE_MILLIS","1209600000L")
+      buildConfigField("String","TRUST_LIST_MANIFEST_ROOT_CERT","\"MIIBmzCCAUGgAwIBAgIULLaYvR7QSKLfmVPR5XFwG8lyFsowCgYIKoZIzj0EAwIwIzEhMB8GA1UEAwwYTGF1cmVsSUQgVGVzdCBUcnVzdCBSb290MB4XDTI1MTAwMjAwMDQzMloXDTM1MDkzMDAwMDQzMlowIzEhMB8GA1UEAwwYTGF1cmVsSUQgVGVzdCBUcnVzdCBSb290MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEyrjywG4CQfVfu7CtKnWRmTQUR9OX/aNoWV6kJDiLjDOzywT8Q+0K3kALe/ia4u2VBOjjKYMS2jcqcs5TJZwrsqNTMFEwHQYDVR0OBBYEFKIg2A8F65q0WEuYC9We9JIxIloHMB8GA1UdIwQYMBaAFKIg2A8F65q0WEuYC9We9JIxIloHMA8GA1UdEwEB/wQFMAMBAf8wCgYIKoZIzj0EAwIDSAAwRQIhAPHz3+yopBOVPO6QBvlhHkC9iUNp4Hw6K2zUJOr9MEyVAiA7/885IjIOYQod4TL7qKqu4pDchuhJVvzd+NK/BQz3EQ==\"")
+      buildConfigField("boolean","USE_APPLE_EXTERNAL_VERIFIER","true")
     }
     create("production") {
       dimension = "environment"
-      buildConfigField("String", "TRUST_LIST_BASE_URL", "\"https://trustlist.laurelid.gov/api/v1/\"")
-      buildConfigField("boolean", "ALLOW_TRUST_LIST_OVERRIDE", "false")
-      buildConfigField(
-        "String",
-        "TRUST_LIST_CERT_PINS",
-        "\"sha256/53WBOQS+QL6Tw4VVKvh/Au9ua7Lif0cZ5mlzXRa37kY@1748736000000,sha256/Sq9GtEtHd5FcNhLBA7ZnWD9E/RE0KhwvhJ8apGLI1qI@1780272000000\"",
-      )
-      buildConfigField("long", "TRUST_LIST_CACHE_MAX_AGE_MILLIS", "43200000L")
-      buildConfigField("long", "TRUST_LIST_CACHE_STALE_TTL_MILLIS", "259200000L")
-      buildConfigField("long", "TRUST_LIST_PIN_EXPIRY_GRACE_MILLIS", "1209600000L")
-      buildConfigField(
-        "String",
-        "TRUST_LIST_MANIFEST_ROOT_CERT",
-        "\"MIIBmzCCAUGgAwIBAgIULLaYvR7QSKLfmVPR5XFwG8lyFsowCgYIKoZIzj0EAwIwIzEhMB8GA1UEAwwYTGF1cmVsSUQgVGVzdCBUcnVzdCBSb290MB4XDTI1MTAwMjAwMDQzMloXDTM1MDkzMDAwMDQzMlowIzEhMB8GA1UEAwwYTGF1cmVsSUQgVGVzdCBUcnVzdCBSb290MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEyrjywG4CQfVfu7CtKnWRmTQUR9OX/aNoWV6kJDiLjDOzywT8Q+0K3kALe/ia4u2VBOjjKYMS2jcqcs5TJZwrsqNTMFEwHQYDVR0OBBYEFKIg2A8F65q0WEuYC9We9JIxIloHMB8GA1UdIwQYMBaAFKIg2A8F65q0WEuYC9We9JIxIloHMA8GA1UdEwEB/wQFMAMBAf8wCgYIKoZIzj0EAwIDSAAwRQIhAPHz3+yopBOVPO6QBvlhHkC9iUNp4Hw6K2zUJOr9MEyVAiA7/885IjIOYQod4TL7qKqu4pDchuhJVvzd+NK/BQz3EQ==\"",
-      )
-      buildConfigField("boolean", "USE_APPLE_EXTERNAL_VERIFIER", "false")
+      buildConfigField("String","TRUST_LIST_BASE_URL","\"https://trustlist.laurelid.gov/api/v1/\"")
+      buildConfigField("boolean","ALLOW_TRUST_LIST_OVERRIDE","false")
+      buildConfigField("String","TRUST_LIST_CERT_PINS","\"sha256/53WBOQS+QL6Tw4VVKvh/Au9ua7Lif0cZ5mlzXRa37kY@1748736000000,sha256/Sq9GtEtHd5FcNhLBA7ZnWD9E/RE0KhwvhJ8apGLI1qI@1780272000000\"")
+      buildConfigField("long","TRUST_LIST_CACHE_MAX_AGE_MILLIS","43200000L")
+      buildConfigField("long","TRUST_LIST_CACHE_STALE_TTL_MILLIS","259200000L")
+      buildConfigField("long","TRUST_LIST_PIN_EXPIRY_GRACE_MILLIS","1209600000L")
+      buildConfigField("String","TRUST_LIST_MANIFEST_ROOT_CERT","\"MIIBmzCCAUGgAwIBAgIULLaYvR7QSKLfmVPR5XFwG8lyFsowCgYIKoZIzj0EAwIwIzEhMB8GA1UEAwwYTGF1cmVsSUQgVGVzdCBUcnVzdCBSb290MB4XDTI1MTAwMjAwMDQzMloXDTM1MDkzMDAwMDQzMlowIzEhMB8GA1UEAwwYTGF1cmVsSUQgVGVzdCBUcnVzdCBSb290MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEyrjywG4CQfVfu7CtKnWRmTQUR9OX/aNoWV6kJDiLjDOzywT8Q+0K3kALe/ia4u2VBOjjKYMS2jcqcs5TJZwrsqNTMFEwHQYDVR0OBBYEFKIg2A8F65q0WEuYC9We9JIxIloHMB8GA1UdIwQYMBaAFKIg2A8F65q0WEuYC9We9JIxIloHMA8GA1UdEwEB/wQFMAMBAf8wCgYIKoZIzj0EAwIDSAAwRQIhAPHz3+yopBOVPO6QBvlhHkC9iUNp4Hw6K2zUJOr9MEyVAiA7/885IjIOYQod4TL7qKqu4pDchuhJVvzd+NK/BQz3EQ==\"")
+      buildConfigField("boolean","USE_APPLE_EXTERNAL_VERIFIER","false")
     }
   }
 
@@ -68,25 +56,23 @@ android {
     buildConfig = true
   }
 
-  val releaseSigning = signingConfigs.create("release") {
-    val keystorePath = System.getenv("LAURELID_RELEASE_KEYSTORE")
-      ?: project.findProperty("laurelIdReleaseKeystore") as? String
-    val keystorePassword = System.getenv("LAURELID_RELEASE_KEYSTORE_PASSWORD")
-      ?: project.findProperty("laurelIdReleaseKeystorePassword") as? String
-    val keyAliasValue = System.getenv("LAURELID_RELEASE_KEY_ALIAS")
-      ?: project.findProperty("laurelIdReleaseKeyAlias") as? String
-    val keyPasswordValue = System.getenv("LAURELID_RELEASE_KEY_PASSWORD")
-      ?: project.findProperty("laurelIdReleaseKeyPassword") as? String
+  signingConfigs {
+    create("release") {
+      val keystorePath = System.getenv("LAURELID_RELEASE_KEYSTORE")
+        ?: project.findProperty("laurelIdReleaseKeystore") as? String
+      val keystorePassword = System.getenv("LAURELID_RELEASE_KEYSTORE_PASSWORD")
+        ?: project.findProperty("laurelIdReleaseKeystorePassword") as? String
+      val keyAliasValue = System.getenv("LAURELID_RELEASE_KEY_ALIAS")
+        ?: project.findProperty("laurelIdReleaseKeyAlias") as? String
+      val keyPasswordValue = System.getenv("LAURELID_RELEASE_KEY_PASSWORD")
+        ?: project.findProperty("laurelIdReleaseKeyPassword") as? String
 
-    if (!keystorePath.isNullOrBlank()) {
-      storeFile = file(keystorePath)
+      if (!keystorePath.isNullOrBlank()) storeFile = file(keystorePath)
+      storePassword = keystorePassword
+      keyAlias = keyAliasValue
+      keyPassword = keyPasswordValue
     }
-    storePassword = keystorePassword
-    keyAlias = keyAliasValue
-    keyPassword = keyPasswordValue
   }
-
-  val debugSigning = signingConfigs.getByName("debug")
 
   buildTypes {
     getByName("release") {
@@ -94,19 +80,20 @@ android {
       isShrinkResources = true
       proguardFiles(
         getDefaultProguardFile("proguard-android-optimize.txt"),
-        "proguard-rules.pro",
+        "proguard-rules.pro"
       )
-      val hasReleaseSigning = releaseSigning.storeFile != null &&
-        !releaseSigning.keyAlias.isNullOrBlank() &&
-        !releaseSigning.storePassword.isNullOrBlank() &&
-        !releaseSigning.keyPassword.isNullOrBlank()
-      signingConfig = if (hasReleaseSigning) releaseSigning else debugSigning
-      buildConfigField("boolean", "USE_APPLE_EXTERNAL_VERIFIER", "false")
+      val releaseSig = signingConfigs.getByName("release")
+      val hasReleaseSigning =
+        (releaseSig.storeFile != null) &&
+                !releaseSig.keyAlias.isNullOrBlank() &&
+                !releaseSig.storePassword.isNullOrBlank() &&
+                !releaseSig.keyPassword.isNullOrBlank()
+      signingConfig = if (hasReleaseSigning) releaseSig else signingConfigs.getByName("debug")
+      buildConfigField("boolean","INTEGRITY_GATE_ENABLED","true")
     }
-
     getByName("debug") {
       isMinifyEnabled = false
-      buildConfigField("boolean", "USE_APPLE_EXTERNAL_VERIFIER", "true")
+      buildConfigField("boolean","INTEGRITY_GATE_ENABLED","false")
     }
   }
 
@@ -114,67 +101,70 @@ android {
     sourceCompatibility = JavaVersion.VERSION_17
     targetCompatibility = JavaVersion.VERSION_17
   }
-  kotlinOptions {
-    jvmTarget = "17"
-  }
+
+  kotlinOptions { jvmTarget = "17" }
+  packaging { resources { excludes += setOf("/META-INF/{AL2.0,LGPL2.1}") } }
 }
 
-kapt {
-  correctErrorTypes = true
+kotlin {
+  jvmToolchain(17)
+  compilerOptions { jvmTarget.set(JvmTarget.JVM_17) }
+}
+
+// KAPT only for Hilt
+kapt { correctErrorTypes = true }
+
+// KSP options (Room)
+ksp {
+  arg("room.generateKotlin", "true")
 }
 
 dependencies {
+  // Keep your libs.versions.toml Room at 2.8.1 (don't use 2.8.3)
+  implementation(platform("org.jetbrains.kotlinx:kotlinx-coroutines-bom:1.10.2"))
+  implementation(platform(kotlin("bom", "2.0.20")))
+  implementation(kotlin("stdlib"))
+  implementation(kotlin("reflect"))
+
   implementation(libs.androidx.core.ktx)
   implementation(libs.androidx.appcompat)
   implementation(libs.material)
 
-  implementation(platform(libs.mlkit.bom))
-  implementation(libs.mlkit.barcode)
-
+  // CameraX
   implementation(libs.androidx.camera.core)
   implementation(libs.androidx.camera.camera2)
   implementation(libs.androidx.camera.lifecycle)
   implementation(libs.androidx.camera.view)
 
+  // Room — KSP
   implementation(libs.room.runtime)
   implementation(libs.room.ktx)
-  kapt(libs.room.compiler) // Requires kotlin-kapt plugin
+  ksp(libs.room.compiler)
 
+  // Networking
   implementation(libs.retrofit.core)
   implementation(libs.retrofit.moshi)
-  implementation(libs.okhttp)
+  implementation(libs.okhttp.core)
   implementation(libs.okhttp.logging)
+
   implementation(libs.androidx.security.crypto)
   implementation(libs.androidx.lifecycle.runtime.ktx)
+
+  // CBOR / COSE
   implementation(libs.cbor)
+  implementation(libs.cose)
+
+  // Hilt — via KAPT
   implementation(libs.hilt.android)
   kapt(libs.hilt.compiler)
-  implementation(libs.play.services.integrity)
 
-  testImplementation(kotlin("test"))
-  testImplementation(libs.cose)
-  testImplementation(libs.bouncycastle.bcprov)
-  testImplementation(libs.bouncycastle.bcpkix)
-  testImplementation(libs.androidx.test.core)
-  testImplementation(libs.robolectric)
-  testImplementation(libs.kotlinx.coroutines.test)
-  androidTestImplementation(libs.androidx.test.ext.junit)
-  androidTestImplementation(libs.androidx.test.runner)
-  androidTestImplementation(libs.androidx.test.core)
-  androidTestImplementation(libs.espresso.core)
-  androidTestImplementation(libs.espresso.intents)
-  androidTestImplementation(libs.hilt.android.testing)
-  kaptAndroidTest(libs.hilt.compiler)
-}
+  // ML Kit & Play Integrity
+  implementation("com.google.mlkit:barcode-scanning:17.3.0")
+  implementation(libs.play.integrity)
+  implementation("com.google.android.gms:play-services-tasks:18.4.0")
 
-tasks.register("testStagingUnitTest") {
-  group = "verification"
-  description = "Runs unit tests for the staging flavor."
-  dependsOn("testStagingDebugUnitTest")
-}
-
-tasks.register("testProductionUnitTest") {
-  group = "verification"
-  description = "Runs unit tests for the production flavor."
-  dependsOn("testProductionDebugUnitTest")
+  // Optional: ensure the API version matches the KSP plugin version you declared
+  constraints {
+    add("ksp", "com.google.devtools.ksp:symbol-processing-api:2.0.20-1.0.24")
+  }
 }

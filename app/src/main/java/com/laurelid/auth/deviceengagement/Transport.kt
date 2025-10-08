@@ -4,6 +4,8 @@ import com.laurelid.auth.DeviceResponseFormat
 import com.laurelid.auth.MdocError
 import com.laurelid.auth.MdocParseException
 import com.laurelid.util.Logger
+import javax.inject.Inject
+import javax.inject.Singleton
 
 interface Transport {
     fun start()
@@ -20,7 +22,8 @@ interface TransportFactory {
     fun create(deviceEngagement: DeviceEngagement): Transport
 }
 
-class DeviceEngagementTransportFactory : TransportFactory {
+@Singleton
+class DeviceEngagementTransportFactory @Inject constructor() : TransportFactory {
     override fun create(deviceEngagement: DeviceEngagement): Transport {
         deviceEngagement.nfc?.let { descriptor ->
             Logger.d(TAG, "Starting NFC transport for device engagement version ${deviceEngagement.version}")

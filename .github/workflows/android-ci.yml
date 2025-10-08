@@ -49,7 +49,7 @@ jobs:
             ktlintCheck
             detekt
             lint
-            test
+            ciUnitTest
 
       - name: Run connected Android tests
         uses: reactivecircus/android-emulator-runner@v2

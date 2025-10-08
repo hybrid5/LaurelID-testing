@@ -421,12 +421,13 @@ open class VerifierService constructor(
 
     private fun coseKeyToPublicKey(cbor: CBORObject): PublicKey? {
         if (cbor.type != CBORType.Map) return null
+
         val kty = cbor[CBORObject.FromObject(COSE_KEY_KTY)] ?: return null
-        if (!kty.IsNumber) return null
+        if (kty.type != CBORType.Integer) return null
         if (kty.AsNumber().ToInt32Checked() != COSE_KEY_KTY_EC2) return null
 
         val curve = cbor[CBORObject.FromObject(COSE_KEY_CRV)] ?: return null
-        if (!curve.IsNumber || curve.AsNumber().ToInt32Checked() != COSE_KEY_CRV_P256) return null
+        if (curve.type != CBORType.Integer || curve.AsNumber().ToInt32Checked() != COSE_KEY_CRV_P256) return null
 
         val x = cbor[CBORObject.FromObject(COSE_KEY_X)] ?: return null
         val y = cbor[CBORObject.FromObject(COSE_KEY_Y)] ?: return null
@@ -434,9 +435,7 @@ open class VerifierService constructor(
 
         val xBytes = x.GetByteString()
         val yBytes = y.GetByteString()
-        if (xBytes.size != P256_COORDINATE_LENGTH || yBytes.size != P256_COORDINATE_LENGTH) {
-            return null
-        }
+        if (xBytes.size != P256_COORDINATE_LENGTH || yBytes.size != P256_COORDINATE_LENGTH) return null
 
         return createEcPublicKey(xBytes, yBytes)
     }

@@ -1,40 +1,46 @@
-import io.gitlab.arturbosch.detekt.extensions.DetektExtension
-import org.jlleitschuh.gradle.ktlint.KtlintExtension
+// Root build.gradle.kts
+
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.dsl.KotlinAndroidProjectExtension
 import org.jetbrains.kotlin.gradle.dsl.KotlinJvmProjectExtension
+import io.gitlab.arturbosch.detekt.extensions.DetektExtension
+import org.jlleitschuh.gradle.ktlint.KtlintExtension
 
 plugins {
-  id("com.android.application") apply false
-  id("org.jetbrains.kotlin.android") apply false
-  id("org.jetbrains.kotlin.plugin.parcelize") apply false
-  id("org.jetbrains.kotlin.kapt") apply false
-  id("com.google.dagger.hilt.android") apply false
-  id("org.jlleitschuh.gradle.ktlint") apply false
-  id("io.gitlab.arturbosch.detekt") apply false
+  id("com.android.application") version "8.13.0" apply false
+  id("com.android.library")     version "8.13.0" apply false
+
+  // Use a KSP build that exists; keep Kotlin and KSP in the same minor line
+  id("org.jetbrains.kotlin.android")          version "2.0.20" apply false
+  id("org.jetbrains.kotlin.plugin.parcelize") version "2.0.20" apply false
+  id("org.jetbrains.kotlin.kapt")             version "2.0.20" apply false
+  id("com.google.devtools.ksp")               version "2.0.20-1.0.24" apply false
+
+  id("com.google.dagger.hilt.android")        version "2.57.2" apply false
+  id("org.jlleitschuh.gradle.ktlint")         version "13.1.0" apply false
+  id("io.gitlab.arturbosch.detekt")           version "1.23.8" apply false
 }
 
-subprojects {
-  pluginManager.apply("org.jlleitschuh.gradle.ktlint")
-  pluginManager.apply("io.gitlab.arturbosch.detekt")
+// Do NOT force Kotlin artifacts globally. Let processors (Room) pick newer stdlib if they need it.
 
-  // ✅ Correct extensions per plugin
+subprojects {
+  // JVM toolchain for all Kotlin projects
   plugins.withId("org.jetbrains.kotlin.android") {
-    extensions.configure<KotlinAndroidProjectExtension> {
+    extensions.findByType(KotlinAndroidProjectExtension::class.java)?.apply {
       jvmToolchain(17)
-      compilerOptions {
-        jvmTarget.set(JvmTarget.JVM_17)
-      }
+      compilerOptions.jvmTarget.set(JvmTarget.JVM_17)
     }
   }
   plugins.withId("org.jetbrains.kotlin.jvm") {
-    extensions.configure<KotlinJvmProjectExtension> {
+    extensions.findByType(KotlinJvmProjectExtension::class.java)?.apply {
       jvmToolchain(17)
-      compilerOptions {
-        jvmTarget.set(JvmTarget.JVM_17)
-      }
+      compilerOptions.jvmTarget.set(JvmTarget.JVM_17)
     }
   }
+
+  // Static analysis
+  pluginManager.apply("org.jlleitschuh.gradle.ktlint")
+  pluginManager.apply("io.gitlab.arturbosch.detekt")
 
   extensions.configure<KtlintExtension> {
     android.set(true)
@@ -42,7 +48,6 @@ subprojects {
     filter { exclude("**/build/**") }
   }
 
-  // Do NOT force kotlin-stdlib globally; let the toolchain handle it.
   extensions.configure<DetektExtension> {
     buildUponDefaultConfig = true
     allRules = false
@@ -55,12 +60,15 @@ subprojects {
   }
 }
 
+// --- CI Tasks ---
 tasks.register("ciStaticAnalysis") {
-  group = "ci"; description = "Runs Android lint, ktlint, and detekt checks."
+  group = "ci"
+  description = "Runs Android lint, ktlint, and detekt checks."
   dependsOn(":app:lint", ":app:ktlintCheck", ":app:detekt")
 }
 
 tasks.register("ciRelease") {
-  group = "ci"; description = "Assembles the release APK."
+  group = "ci"
+  description = "Assembles the release APK."
   dependsOn(":app:assembleRelease")
 }

@@ -1,12 +1,16 @@
 // app/build.gradle.kts
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
 plugins {
   id("com.android.application")
   id("org.jetbrains.kotlin.android")
   id("org.jetbrains.kotlin.plugin.parcelize")
-  id("org.jetbrains.kotlin.kapt")
+  id("com.google.devtools.ksp")           // Room on KSP
+  id("org.jetbrains.kotlin.kapt")         // Hilt on KAPT
   id("com.google.dagger.hilt.android")
 }
+
+// ❌ No classpath surgery or forcing on KSP configs. Let Room bring its own Kotlin on the processor CP.
 
 android {
   namespace = "com.laurelid"
@@ -18,13 +22,10 @@ android {
     targetSdk = 36
     versionCode = 1
     versionName = "1.0"
-
     buildConfigField("long", "PLAY_INTEGRITY_PROJECT_NUMBER", "0L")
   }
 
-  // Flavor dimension
   flavorDimensions += listOf("environment")
-
   productFlavors {
     create("staging") {
       dimension = "environment"
@@ -77,9 +78,10 @@ android {
     getByName("release") {
       isMinifyEnabled = true
       isShrinkResources = true
-      proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-
-      // Use release signing if fully configured; else fall back to debug signing.
+      proguardFiles(
+        getDefaultProguardFile("proguard-android-optimize.txt"),
+        "proguard-rules.pro"
+      )
       val releaseSig = signingConfigs.getByName("release")
       val hasReleaseSigning =
         (releaseSig.storeFile != null) &&
@@ -87,16 +89,11 @@ android {
                 !releaseSig.storePassword.isNullOrBlank() &&
                 !releaseSig.keyPassword.isNullOrBlank()
       signingConfig = if (hasReleaseSigning) releaseSig else signingConfigs.getByName("debug")
-
-      // Integrity gate ON for release
       buildConfigField("boolean","INTEGRITY_GATE_ENABLED","true")
-      // (Keep USE_APPLE_EXTERNAL_VERIFIER defined in flavors)
     }
     getByName("debug") {
       isMinifyEnabled = false
-      // Integrity gate OFF for debug to allow local testing
       buildConfigField("boolean","INTEGRITY_GATE_ENABLED","false")
-      // (Do not redeclare USE_APPLE_EXTERNAL_VERIFIER here)
     }
   }
 
@@ -105,12 +102,8 @@ android {
     targetCompatibility = JavaVersion.VERSION_17
   }
 
-  // Optional: common packaging excludes (COSE/CBOR deps sometimes ship extra notices)
-  packaging {
-    resources {
-      excludes += setOf("/META-INF/{AL2.0,LGPL2.1}")
-    }
-  }
+  kotlinOptions { jvmTarget = "17" }
+  packaging { resources { excludes += setOf("/META-INF/{AL2.0,LGPL2.1}") } }
 }
 
 kotlin {
@@ -118,9 +111,21 @@ kotlin {
   compilerOptions { jvmTarget.set(JvmTarget.JVM_17) }
 }
 
+// KAPT only for Hilt
 kapt { correctErrorTypes = true }
 
+// KSP options (Room)
+ksp {
+  arg("room.generateKotlin", "true")
+}
+
 dependencies {
+  // Keep your libs.versions.toml Room at 2.8.1 (don't use 2.8.3)
+  implementation(platform("org.jetbrains.kotlinx:kotlinx-coroutines-bom:1.10.2"))
+  implementation(platform(kotlin("bom", "2.0.20")))
+  implementation(kotlin("stdlib"))
+  implementation(kotlin("reflect"))
+
   implementation(libs.androidx.core.ktx)
   implementation(libs.androidx.appcompat)
   implementation(libs.material)
@@ -131,10 +136,10 @@ dependencies {
   implementation(libs.androidx.camera.lifecycle)
   implementation(libs.androidx.camera.view)
 
-  // Room
+  // Room — KSP
   implementation(libs.room.runtime)
   implementation(libs.room.ktx)
-  kapt(libs.room.compiler)
+  ksp(libs.room.compiler)
 
   // Networking
   implementation(libs.retrofit.core)
@@ -146,17 +151,20 @@ dependencies {
   implementation(libs.androidx.lifecycle.runtime.ktx)
 
   // CBOR / COSE
-  implementation(libs.cbor)  // upokecenter CBOR
-  implementation(libs.cose)  // augustcellars COSE
+  implementation(libs.cbor)
+  implementation(libs.cose)
 
-  // Hilt
+  // Hilt — via KAPT
   implementation(libs.hilt.android)
   kapt(libs.hilt.compiler)
 
-  // ML Kit
+  // ML Kit & Play Integrity
   implementation("com.google.mlkit:barcode-scanning:17.3.0")
-
-  // Play Integrity
   implementation(libs.play.integrity)
   implementation("com.google.android.gms:play-services-tasks:18.4.0")
+
+  // Optional: ensure the API version matches the KSP plugin version you declared
+  constraints {
+    add("ksp", "com.google.devtools.ksp:symbol-processing-api:2.0.20-1.0.24")
+  }
 }

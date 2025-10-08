@@ -1,23 +1,16 @@
+// settings.gradle.kts
 pluginManagement {
   repositories {
-    gradlePluginPortal()
     google()
     mavenCentral()
-  }
-  plugins {
-    id("com.android.application") version "9.0.0"
-    id("com.android.test") version "9.0.0"
-    id("org.jetbrains.kotlin.android") version "2.0.20"
-    id("org.jetbrains.kotlin.plugin.parcelize") version "2.0.20"
-    id("org.jetbrains.kotlin.kapt") version "2.0.20"
-    id("com.google.dagger.hilt.android") version "2.57.2"
-    id("org.jlleitschuh.gradle.ktlint") version "13.1.0"
-    id("io.gitlab.arturbosch.detekt") version "1.23.8"
+    gradlePluginPortal()
+    maven("https://plugins.gradle.org/m2/")
   }
 }
 
 plugins {
-  id("org.gradle.toolchains.foojay-resolver-convention") version "1.0.0"
+  // JDK auto-management helper (doesn't change Kotlin/AGP versions)
+  id("org.gradle.toolchains.foojay-resolver-convention") version "0.8.0"
 }
 
 dependencyResolutionManagement {
@@ -25,7 +18,6 @@ dependencyResolutionManagement {
   repositories {
     google()
     mavenCentral()
-    maven { url = uri("https://jitpack.io") }
   }
 }
 

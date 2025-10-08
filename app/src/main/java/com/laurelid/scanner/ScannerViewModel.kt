@@ -107,7 +107,8 @@ class ScannerViewModel @Inject constructor(
     }
 
     companion object {
-        private const val ERROR_MESSAGE = com.laurelid.R.string.result_details_error_unknown
+        // Resource IDs aren’t compile-time constants in Kotlin, so this must be a regular val.
+        private val ERROR_MESSAGE: Int = com.laurelid.R.string.result_details_error_unknown
         private const val TAG = "ScannerViewModel"
     }
 }

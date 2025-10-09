@@ -109,9 +109,6 @@ truth = { module = "com.google.truth:truth", version.ref = "truth" }
 mockk = { module = "io.mockk:mockk", version.ref = "mockk" }
 arch-core-testing = { module = "androidx.arch.core:core-testing", version.ref = "arch-testing" }
 
-[libraries.r8]
-full = { module = "com.android.tools:r8", version.ref = "r8" }
-
 [bundles]
 androidx-lifecycle = ["androidx-lifecycle-runtime-ktx", "androidx-lifecycle-viewmodel-ktx", "androidx-lifecycle-livedata-ktx"]
 camera = ["androidx-camera-core", "androidx-camera-camera2", "androidx-camera-lifecycle", "androidx-camera-view"]

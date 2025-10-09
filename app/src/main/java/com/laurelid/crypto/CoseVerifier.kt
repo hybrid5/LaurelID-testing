@@ -45,7 +45,7 @@ class DefaultCoseVerifier @Inject constructor() : CoseVerifier {
             val message = Sign1Message.DecodeFromBytes(payload)
             val certificates = extractCertificates(message)
             if (certificates.isEmpty()) error("MSO missing signer certificate")
-            validateChain(certificates, trustAnchors)
+            validateChain(certificates, trustAnchors, requireAnchors = true)
             val signer = certificates.first()
             if (!message.validate(OneKey(signer.publicKey, null))) {
                 error("Issuer signature validation failed")
@@ -64,7 +64,7 @@ class DefaultCoseVerifier @Inject constructor() : CoseVerifier {
         val aad = MessageDigest.getInstance("SHA-256").digest(transcript)
         message.setExternal(aad)
         val publicKey = deviceChain.first().publicKey
-        validateChain(deviceChain, emptyList())
+        validateChain(deviceChain, emptyList(), requireAnchors = false)
         message.validate(OneKey(publicKey, null))
     }
 
@@ -90,9 +90,15 @@ class DefaultCoseVerifier @Inject constructor() : CoseVerifier {
         return certificates
     }
 
-    private fun validateChain(chain: List<X509Certificate>, anchors: List<X509Certificate>) {
+    private fun validateChain(
+        chain: List<X509Certificate>,
+        anchors: List<X509Certificate>,
+        requireAnchors: Boolean,
+    ) {
         if (chain.isEmpty()) error("Empty certificate chain")
-        if (anchors.isEmpty()) return
+        if (anchors.isEmpty()) {
+            if (requireAnchors) error("No trust anchors configured") else return
+        }
         val trustAnchors = anchors.map { TrustAnchor(it, null) }.toSet()
         val cf = CertificateFactory.getInstance("X.509")
         val certPath = cf.generateCertPath(chain)

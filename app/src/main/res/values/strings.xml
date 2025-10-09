@@ -49,6 +49,14 @@
     <string name="admin_pin_updated">PIN updated and settings saved.</string>
     <string name="play_integrity_blocked">Admin settings are locked because the device failed Play Integrity verification.</string>
 
+    <string name="trust_banner_title">Issuer trust unavailable</string>
+    <string name="trust_banner_message">No issuer trust anchors are configured. Verification is blocked until anchors are installed.</string>
+    <string name="trust_banner_last_updated">%1$s • Updated %2$s</string>
+    <plurals name="trust_banner_anchor_count">
+        <item quantity="one">%d trust anchor bundled</item>
+        <item quantity="other">%d trust anchors bundled</item>
+    </plurals>
+
     <!-- Added missing strings -->
     <string name="admin_pin_hint">Enter PIN</string>
     <string name="duration_minutes_seconds">%1$s %2$s</string>

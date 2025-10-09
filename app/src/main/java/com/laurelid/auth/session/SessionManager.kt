@@ -66,7 +66,7 @@ class SessionManager @Inject constructor(
         val roots = try {
             trustStore.loadIacaRoots()
         } catch (error: TrustAnchorsUnavailable) {
-            throw VerificationError.TrustAnchorsUnavailable("IACA anchors unavailable", error)
+            throw VerificationError.IssuerTrustUnavailable("No IACA trust anchors configured", error)
         }
         val issuer: VerifiedIssuer = coseVerifier.verifyIssuer(
             response.issuerSigned,

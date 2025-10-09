@@ -2,7 +2,7 @@ package com.laurelid.mdoc
 
 import com.augustcellars.cbor.CBORObject
 import com.laurelid.crypto.CoseVerifier
-import com.laurelid.crypto.TrustStore
+import com.laurelid.auth.trust.TrustStore
 import com.laurelid.crypto.VerifiedIssuer
 import com.laurelid.deviceengagement.TransportMessage
 import java.io.ByteArrayInputStream

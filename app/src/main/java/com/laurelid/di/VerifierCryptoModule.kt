@@ -6,8 +6,8 @@ import com.laurelid.crypto.CoseVerifier
 import com.laurelid.crypto.DefaultCoseVerifier
 import com.laurelid.crypto.HpkeEngine
 import com.laurelid.crypto.HpkeKeyProvider
-import com.laurelid.crypto.ResourceTrustStore
-import com.laurelid.crypto.TrustStore
+import com.laurelid.auth.trust.ResourceTrustStore
+import com.laurelid.auth.trust.TrustStore
 import dagger.Binds
 import dagger.Module
 import dagger.hilt.InstallIn

@@ -7,9 +7,12 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.TextView
 import android.widget.Toast
+import com.laurelid.ui.AdminBanner
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.SwitchCompat
 import androidx.lifecycle.lifecycleScope
+import com.laurelid.trust.TrustBootstrap
+import dagger.hilt.android.AndroidEntryPoint
 import com.laurelid.R
 import com.laurelid.config.AdminConfig
 import com.laurelid.config.AdminPinManager
@@ -19,20 +22,33 @@ import com.laurelid.integrity.PlayIntegrityGate
 import com.laurelid.kiosk.KioskWatchdogService
 import com.laurelid.network.TrustListEndpointPolicy
 import com.laurelid.util.KioskUtil
+import javax.inject.Inject
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.collectLatest
 
+@AndroidEntryPoint
 class AdminActivity : AppCompatActivity() {
 
     private lateinit var configManager: ConfigManager
     private lateinit var adminPinManager: AdminPinManager
     private lateinit var initialConfig: AdminConfig
+    private lateinit var trustBanner: AdminBanner
+
+    @Inject lateinit var trustBootstrap: TrustBootstrap
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_admin)
         KioskUtil.applyKioskDecor(window)
+        trustBanner = findViewById(R.id.trustBanner)
         configManager = ConfigManager(applicationContext)
         adminPinManager = AdminPinManager(EncryptedAdminPinStorage(applicationContext))
+
+        lifecycleScope.launch {
+            trustBootstrap.status.collectLatest { status ->
+                trustBanner.render(status)
+            }
+        }
 
         lifecycleScope.launch {
             val allowed = PlayIntegrityGate.isAdminAccessAllowed(this@AdminActivity)

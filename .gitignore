@@ -11,3 +11,10 @@
 # Project exclude paths
 /app/build/
 /app/build/intermediates/javac/debug/compileDebugJavaWithJavac/classes/
+# Cert/keystore binaries
+app/src/**/trust/**.cer
+*.cer
+*.der
+*.p12
+*.jks
+

@@ -49,21 +49,31 @@ class KioskViewModel @Inject constructor(
         }
     }
 
-    fun startWebSession() {
+    fun startSession(preferred: TransportType = TransportType.WEB) {
         viewModelScope.launch {
-            _state.update { it.copy(status = "Starting session…", loading = true, resultText = null) }
-            try {
-                val session = sessionManager.createSession(TransportType.WEB)
-                activeSession = session
-                _state.update { it.copy(status = "Waiting for wallet…", loading = false) }
-            } catch (t: Throwable) {
-                Logger.e(TAG, "Failed to start session", t)
-                _state.update { it.copy(status = "Failed to start session", loading = false, resultText = t.message) }
+            _state.update {
+                it.copy(status = "Starting session…", loading = true, resultText = null, qr = null)
             }
+            runCatching { sessionManager.createSession(preferred) }
+                .onSuccess { session ->
+                    activeSession = session
+                    val waiting = when (preferred) {
+                        TransportType.WEB -> "Waiting for wallet…"
+                        TransportType.NFC -> "Waiting for NFC tap…"
+                        TransportType.BLE -> "Waiting for BLE wallet…"
+                    }
+                    _state.update { it.copy(status = waiting, loading = false) }
+                }
+                .onFailure { t ->
+                    Logger.e(TAG, "Failed to start session", t)
+                    _state.update {
+                        it.copy(status = "Failed to start session", loading = false, resultText = t.message)
+                    }
+                }
         }
     }
 
-    fun cancelSession() {
+    fun reset() {
         viewModelScope.launch {
             try {
                 sessionManager.cancel()
@@ -71,7 +81,7 @@ class KioskViewModel @Inject constructor(
                 // ignore
             } finally {
                 activeSession = null
-                _state.value = UiState(status = "Idle")
+                _state.value = UiState()
             }
         }
     }

@@ -11,9 +11,7 @@ import androidx.fragment.app.viewModels
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
-import com.laurelid.R
 import com.laurelid.databinding.FragmentKioskBinding
-import com.laurelid.mdoc.PresentationRequestBuilder
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
@@ -54,58 +52,20 @@ class KioskFragment : Fragment() {
         _binding = null
     }
 
-    private fun render(state: KioskState) {
-        val binding = _binding ?: return
-        when (state) {
-            KioskState.Idle -> {
-                binding.statusText.setText(R.string.kiosk_idle)
-                binding.progressIndicator.isGone = true
-                binding.qrPanel.qrImage.setImageBitmap(null)
-                binding.qrPanel.sessionIdText.text = ""
-                binding.resultContainer.root.isGone = true
-            }
-            KioskState.Engaging -> {
-                binding.statusText.setText(R.string.kiosk_engaging)
-                binding.progressIndicator.isVisible = true
-                binding.resultContainer.root.isGone = true
-            }
-            is KioskState.WaitingApproval -> {
-                binding.statusText.setText(R.string.kiosk_waiting)
-                binding.progressIndicator.isGone = true
-                binding.qrPanel.qrImage.setImageBitmap(state.qrBitmap)
-                binding.qrPanel.sessionIdText.text = state.sessionId
-                binding.resultContainer.root.isGone = true
-            }
-            KioskState.Decrypting -> {
-                binding.statusText.setText(R.string.kiosk_decrypting)
-                binding.progressIndicator.isVisible = true
-            }
-            is KioskState.Verified -> {
-                binding.statusText.setText(R.string.kiosk_verified)
-                binding.progressIndicator.isGone = true
-                binding.resultContainer.root.isVisible = true
-                binding.resultContainer.resultText.text = buildResultSummary(state.result)
-            }
-            is KioskState.Denied -> {
-                binding.statusText.setText(R.string.kiosk_failed)
-                binding.progressIndicator.isGone = true
-                binding.resultContainer.root.isVisible = true
-                binding.resultContainer.resultText.text = state.reason
-            }
-            is KioskState.Failed -> {
-                binding.statusText.setText(R.string.kiosk_failed)
-                binding.progressIndicator.isGone = true
-                binding.resultContainer.root.isVisible = true
-                binding.resultContainer.resultText.text = state.reason
-            }
-        }
-    }
+    private fun render(state: KioskViewModel.UiState) {
+        val kioskBinding = binding
 
-    private fun buildResultSummary(result: com.laurelid.mdoc.VerificationResult): String {
-        val claims = result.minimalClaims
-        val age = claims[PresentationRequestBuilder.AGE_OVER_21]?.toString() ?: "?"
-        val given = claims[PresentationRequestBuilder.GIVEN_NAME]?.toString() ?: ""
-        val family = claims[PresentationRequestBuilder.FAMILY_NAME]?.toString() ?: ""
-        return getString(R.string.kiosk_verified) + "\n" + listOf(given, family, "21+=$age").joinToString(" ")
+        kioskBinding.statusText.text = state.status
+        kioskBinding.progressIndicator.isVisible = state.loading
+        kioskBinding.progressIndicator.isGone = !state.loading
+
+        val qr = state.qr
+        kioskBinding.qrPanel.qrImage.setImageBitmap(qr?.bitmap)
+        kioskBinding.qrPanel.sessionIdText.text = qr?.sessionId.orEmpty()
+
+        val hasResult = !state.resultText.isNullOrBlank()
+        kioskBinding.resultContainer.root.isVisible = hasResult
+        kioskBinding.resultContainer.root.isGone = !hasResult
+        kioskBinding.resultContainer.resultText.text = state.resultText.orEmpty()
     }
 }

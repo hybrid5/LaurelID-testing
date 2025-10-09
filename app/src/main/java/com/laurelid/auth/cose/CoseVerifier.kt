@@ -1,11 +1,11 @@
 package com.laurelid.auth.cose
 
-import com.augustcellars.cbor.CBORObject
 import com.augustcellars.cose.HeaderKeys
 import com.augustcellars.cose.OneKey
 import com.augustcellars.cose.Sign1Message
 import com.laurelid.auth.session.VerificationError
 import com.laurelid.auth.session.VerifierFeatureFlags
+import com.upokecenter.cbor.CBORObject
 import java.io.ByteArrayInputStream
 import java.security.MessageDigest
 import java.security.cert.CertPathValidator
@@ -107,9 +107,9 @@ class DefaultCoseVerifier @Inject constructor() : CoseVerifier {
     private fun extractCertificates(message: Sign1Message): List<X509Certificate> {
         val x5chain = message.protectedAttributes[HeaderKeys.X5Chain]
             ?: message.unprotectedAttributes[HeaderKeys.X5Chain]
-            ?: return emptyList()
+            ?: throw VerificationError.IssuerUntrusted("Missing X5Chain")
 
-        require(x5chain.isArray) { "Missing x5c chain" }
+        require(x5chain.isArray) { "x5c chain missing" }
 
         val cf = CertificateFactory.getInstance("X.509")
         return buildList {

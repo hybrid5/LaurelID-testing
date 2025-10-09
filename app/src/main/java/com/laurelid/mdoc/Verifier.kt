@@ -1,10 +1,10 @@
 package com.laurelid.mdoc
 
-import com.augustcellars.cbor.CBORObject
-import com.laurelid.crypto.CoseVerifier
+import com.laurelid.auth.cose.CoseVerifier
+import com.laurelid.auth.cose.VerifiedIssuer
 import com.laurelid.auth.trust.TrustStore
-import com.laurelid.crypto.VerifiedIssuer
 import com.laurelid.deviceengagement.TransportMessage
+import com.upokecenter.cbor.CBORObject
 import java.io.ByteArrayInputStream
 import java.security.cert.CertificateFactory
 import java.security.cert.X509Certificate
@@ -27,7 +27,7 @@ class Verifier @Inject constructor(
         val plaintext = message.payload
         val response = parseDeviceResponse(plaintext)
         val roots = trustStore.loadIacaRoots()
-        val issuer: VerifiedIssuer = coseVerifier.verifyIssuer(response.issuerSigned, roots)
+        val issuer: VerifiedIssuer = coseVerifier.verifyIssuer(response.issuerSigned, roots, clock.instant())
         if (response.deviceCertificates.isNotEmpty()) {
             trustStore.verifyChain(response.deviceCertificates, listOf(issuer.signerCert), clock.instant())
         }

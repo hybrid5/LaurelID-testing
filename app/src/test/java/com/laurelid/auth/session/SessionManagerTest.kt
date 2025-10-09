@@ -1,6 +1,6 @@
 package com.laurelid.auth.session
 
-import com.augustcellars.cbor.CBORObject
+import com.upokecenter.cbor.CBORObject
 import com.laurelid.auth.cose.CoseVerifier
 import com.laurelid.auth.cose.VerifiedIssuer
 import com.laurelid.auth.crypto.HpkeEngine

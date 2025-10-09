@@ -11,10 +11,10 @@ plugins {
   id("com.android.library")     version "8.13.0" apply false
 
   // Use a KSP build that exists; keep Kotlin and KSP in the same minor line
-  id("org.jetbrains.kotlin.android")          version "2.0.20" apply false
-  id("org.jetbrains.kotlin.plugin.parcelize") version "2.0.20" apply false
-  id("org.jetbrains.kotlin.kapt")             version "2.0.20" apply false
-  id("com.google.devtools.ksp")               version "2.0.20-1.0.24" apply false
+  id("org.jetbrains.kotlin.android")          version "2.0.21" apply false
+  id("org.jetbrains.kotlin.plugin.parcelize") version "2.0.21" apply false
+  id("org.jetbrains.kotlin.kapt")             version "2.0.21" apply false
+  id("com.google.devtools.ksp")               version "2.0.21-1.0.24" apply false
 
   id("com.google.dagger.hilt.android")        version "2.57.2" apply false
   id("org.jlleitschuh.gradle.ktlint")         version "13.1.0" apply false

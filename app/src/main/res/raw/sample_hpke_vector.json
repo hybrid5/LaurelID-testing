@@ -1,0 +1,11 @@
+{
+  "info": "Placeholder vector for DEVPROFILE",
+  "kem": "DHKEM(X25519)",
+  "kdf": "HKDF-SHA256",
+  "aead": "AES-256-GCM",
+  "recipient_private_key_b64": "Kf0ItAFz2uVH54camzatoNgtrENcGukdxbYlR5c+3F0=",
+  "encapsulated_key_b64": "gD1H2nTTs0Yr2w1nCIgjDQ6VykBLL8GMDIS9ZhDJW60=",
+  "ciphertext_b64": "mD9q4CPGK/c/pX9nuSUXGgEcg2YkdE+5EYXPLkZX31lrT7xvFeoJEBhDigw1k3D6kRXKuX3sI5OGucs5cjoxjw==",
+  "aad_b64": "",
+  "plaintext_b64": "QXBwbGUgbW9iaWxlIGRyaXZlciBtb2NrIHBheWxvYWQ="
+}

@@ -2,7 +2,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- Removed CAMERA permission -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.NFC" />
@@ -17,7 +16,6 @@
         android:name="android.permission.BLUETOOTH_SCAN"
         tools:targetApi="s" />
 
-    <!-- Removed camera feature. Keep NFC (optional or make required="true" if you want). -->
     <uses-feature
         android:name="android.hardware.nfc"
         android:required="false" />
@@ -36,7 +34,8 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.LaurelID"
-        tools:targetApi="31">
+        tools:targetApi="31"
+        tools:replace="android:networkSecurityConfig">
 
         <activity
             android:name="com.laurelid.ui.ScannerActivity"
@@ -48,7 +47,6 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
-            <!-- NFC mdoc deep link -->
             <intent-filter>
                 <action android:name="android.nfc.action.NDEF_DISCOVERED" />
                 <category android:name="android.intent.category.DEFAULT" />

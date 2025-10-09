@@ -1,150 +1,194 @@
-package com.laurelid.mdoc
+package com.laurelid.auth.session
 
-import android.util.Base64
-import com.laurelid.crypto.HpkeEngine
-import com.laurelid.crypto.HpkeEngine.Companion.DEFAULT_KEY_ALIAS
-import com.laurelid.crypto.HpkeKeyProvider
-import com.laurelid.deviceengagement.DeviceEngagement
-import com.laurelid.deviceengagement.QrTransport
-import com.laurelid.deviceengagement.Transport
-import com.laurelid.deviceengagement.TransportDescriptor
-import com.laurelid.deviceengagement.TransportFactory
-import com.laurelid.deviceengagement.TransportMessage
-import com.laurelid.deviceengagement.TransportType
-import com.laurelid.mdoc.DeviceResponseFormat
-import com.laurelid.mdoc.PresentationRequestBuilder.Companion.DEFAULT_DOC_TYPE
+import com.upokecenter.cbor.CBORObject
+import com.laurelid.auth.cose.CoseVerifier
+import com.laurelid.auth.cose.VerifiedIssuer
+import com.laurelid.auth.crypto.HpkeEngine
+import com.laurelid.auth.crypto.HpkeEngine.Companion.DEFAULT_KEY_ALIAS
+import com.laurelid.auth.crypto.HpkeKeyProvider
+import com.laurelid.auth.deviceengagement.TransportType
+import com.laurelid.auth.trust.TrustStore
+import com.laurelid.auth.trust.TrustAnchorsUnavailable
+import com.laurelid.auth.verifier.PresentationRequestBuilder
 import com.laurelid.util.Logger
-import java.nio.charset.StandardCharsets
+import java.io.ByteArrayInputStream
 import java.security.MessageDigest
-import java.util.UUID
+import java.security.SecureRandom
+import java.security.cert.CertificateFactory
+import java.security.cert.X509Certificate
+import java.time.Clock
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
-/**
- * Coordinates engagement setup, HPKE decryption, and verification for kiosk sessions. 【ISO18013-7§7】【RFC9180§5】
- */
+/** Coordinates QR/NFC/BLE engagements and cryptographic verification. */
 @Singleton
 class SessionManager @Inject constructor(
     private val hpkeEngine: HpkeEngine,
     private val keyProvider: HpkeKeyProvider,
+    private val coseVerifier: CoseVerifier,
+    private val trustStore: TrustStore,
     private val presentationBuilder: PresentationRequestBuilder,
-    private val transportFactory: TransportFactory,
-    private val verifier: Verifier,
+    private val webTransport: WebEngagementTransport,
+    private val nfcTransport: NfcEngagementTransport,
+    private val bleTransport: BleEngagementTransport,
+    private val clock: Clock,
 ) {
 
+    private val random = SecureRandom()
     private val mutex = Mutex()
     private var activeSession: ActiveSession? = null
 
-    suspend fun startSession(
-        preferred: TransportType = TransportType.QR,
-        docType: String = DEFAULT_DOC_TYPE,
-    ): ActiveSession = mutex.withLock {
+    suspend fun createSession(preferred: TransportType = TransportType.WEB): ActiveSession = mutex.withLock {
         keyProvider.ensureKey(DEFAULT_KEY_ALIAS)
         hpkeEngine.initRecipient(DEFAULT_KEY_ALIAS)
-        val request = presentationBuilder.createRequest(keyProvider.getPublicKeyBytes(), docType)
-        val sessionId = UUID.randomUUID().toString()
-        val transcript = buildTranscript(sessionId, request)
-        val descriptor = TransportDescriptor(
-            type = TransportType.QR,
-            supportedFormats = listOf(DeviceResponseFormat.COSE_SIGN1),
-            engagementPayload = encodeQrPayload(sessionId, request, transcript),
-            sessionTranscript = transcript,
-            nonce = request.nonce,
+        val nonce = ByteArray(32).also { random.nextBytes(it) }
+        val request = VerificationRequest(
+            docType = PresentationRequestBuilder.DEFAULT_DOC_TYPE,
+            elements = presentationBuilder.requestedAttributes(),
+            nonce = nonce,
+            verifierPublicKey = keyProvider.getPublicKeyBytes(),
         )
-        val engagement = DeviceEngagement(version = 1, qr = descriptor)
-        val transport = transportFactory.create(preferred, engagement)
-        transport.start()
-        val expectedFormat = (transport as? QrTransport)?.currentFormat() ?: DeviceResponseFormat.COSE_SIGN1
-        return@withLock ActiveSession(
-            id = sessionId,
-            request = request,
-            transport = transport,
-            expectedFormat = expectedFormat,
-            transcript = transcript,
-            engagementPayload = descriptor.engagementPayload,
-        ).also { activeSession = it }
+        val transport = selectTransport(preferred, request)
+        val engagement = transport.transport.start(request)
+        val session = ActiveSession(request, transport, engagement)
+        activeSession = session
+        session
     }
 
-    suspend fun processCiphertext(session: ActiveSession, ciphertext: ByteArray): VerificationResult = mutex.withLock {
-        check(activeSession?.id == session.id) { "Session is no longer active" }
-        val result = hpkeEngine.decrypt(ciphertext, session.transcript).use { plaintext ->
-            val payload = plaintext.copy()
-            val message = TransportMessage(
-                payload = payload,
-                format = session.expectedFormat,
-                transcript = session.transcript,
-                engagementNonce = session.request.nonce,
-            )
-            verifier.verify(message)
+    suspend fun decryptAndVerify(session: ActiveSession, ciphertext: ByteArray): VerificationResult = mutex.withLock {
+        check(activeSession == session) { "Session is no longer active" }
+        val transcript = buildTranscript(session)
+        val response = hpkeEngine.decrypt(ciphertext, session.engagement.transcript).use { plaintext ->
+            parseDeviceResponse(plaintext.copy())
         }
-        if (result.isSuccess) {
+        val roots = try {
+            trustStore.loadIacaRoots()
+        } catch (error: TrustAnchorsUnavailable) {
+            throw VerificationError.IssuerTrustUnavailable("No IACA trust anchors configured", error)
+        }
+        val issuer: VerifiedIssuer = coseVerifier.verifyIssuer(
+            response.issuerSigned,
+            roots,
+            clock.instant(),
+        )
+        val chainOk = if (!VerifierFeatureFlags.devProfileMode && response.deviceCertificates.isNotEmpty()) {
+            trustStore.verifyChain(response.deviceCertificates, listOf(issuer.signerCert), clock.instant())
+        } else {
+            true
+        }
+        if (!chainOk) {
+            throw VerificationError.DeviceCertUntrusted("device chain not anchored to IACA")
+        }
+        val deviceSignatureValid = coseVerifier.verifyDeviceSignature(
+            response.deviceSignature,
+            transcript,
+            response.deviceCertificates,
+        )
+        val minimized = presentationBuilder.minimize(issuer.claims)
+        val result = VerificationResult(
+            isSuccess = deviceSignatureValid,
+            minimalClaims = minimized,
+            portrait = issuer.claims[PORTRAIT_KEY] as? ByteArray,
+            audit = buildAuditEntries(issuer, deviceSignatureValid, minimized.keys),
+        )
+        if (deviceSignatureValid) {
             cleanup()
         }
-        Logger.i(TAG, "Verification completed success=${result.isSuccess}")
+        Logger.i(TAG, "Verification completed success=$deviceSignatureValid")
         result
     }
 
+    fun buildTranscript(session: ActiveSession): ByteArray {
+        val digest = MessageDigest.getInstance("SHA-256")
+        val payloadHash = digest.digest(session.engagement.transcript)
+        val map = CBORObject.NewMap().apply {
+            set(CBORObject.FromObject("engagementPayloadHash"), CBORObject.FromObject(payloadHash))
+            set(CBORObject.FromObject("verifierNonce"), CBORObject.FromObject(session.request.nonce))
+            set(CBORObject.FromObject("ts"), CBORObject.FromObject(clock.instant().toEpochMilli()))
+        }
+        return map.EncodeToBytes() // ISO/IEC 18013-7 session transcript
+    }
+
+    fun encodeRequestQr(session: ActiveSession): ByteArray? =
+        if (session.transport.type == TransportType.WEB) session.engagement.transcript else null
+
+    fun encodeNfcHandover(session: ActiveSession): ByteArray? = session.engagement.peerInfo
+
     suspend fun cancel() = mutex.withLock { cleanup() }
 
-    fun handshakePayload(session: ActiveSession): ByteArray? = session.engagementPayload
-
     private suspend fun cleanup() {
-        activeSession?.transport?.stop()
+        activeSession?.transport?.transport?.stop()
         activeSession = null
     }
 
-    private fun buildTranscript(sessionId: String, request: PresentationRequest): ByteArray {
-        val digest = MessageDigest.getInstance("SHA-256")
-        digest.update(sessionId.toByteArray(StandardCharsets.UTF_8))
-        digest.update(request.docType.toByteArray(StandardCharsets.UTF_8))
-        digest.update(request.nonce)
-        for (element in request.requestedElements) {
-            digest.update(element.toByteArray(StandardCharsets.UTF_8))
+    private fun selectTransport(preferred: TransportType, request: VerificationRequest): SessionTransport {
+        val transport = when (preferred) {
+            TransportType.WEB -> SessionTransport(TransportType.WEB, webTransport)
+            TransportType.NFC -> SessionTransport(TransportType.NFC, nfcTransport)
+            TransportType.BLE -> SessionTransport(TransportType.BLE, bleTransport)
         }
-        digest.update(request.verifierPublicKey)
-        return digest.digest()
+        if (transport.type == TransportType.WEB) {
+            webTransport.stage(request)
+        }
+        return transport
     }
 
-    private fun encodeQrPayload(
-        sessionId: String,
-        request: PresentationRequest,
-        transcript: ByteArray,
-    ): ByteArray {
-        val json = buildString {
-            append('{')
-            append("\"sessionId\":\"").append(sessionId).append('\"')
-            append(',')
-            append("\"docType\":\"").append(request.docType).append('\"')
-            append(',')
-            append("\"elements\":[")
-            append(request.requestedElements.joinToString(separator = ",") { "\"$it\"" })
-            append(']')
-            append(',')
-            append("\"nonce\":\"${request.nonce.toBase64()}\"")
-            append(',')
-            append("\"verifierKey\":\"${request.verifierPublicKey.toBase64()}\"")
-            append(',')
-            append("\"transcript\":\"${transcript.toBase64()}\"")
-            append('}')
+    private fun parseDeviceResponse(plaintext: ByteArray): DeviceResponse {
+        val cbor = CBORObject.DecodeFromBytes(plaintext)
+        val issuerSigned = cbor["issuerSigned"].GetByteString()
+        val deviceSignature = cbor["deviceSignature"].GetByteString()
+        val certArray = cbor["deviceCertificates"]
+        val certificates = mutableListOf<X509Certificate>()
+        val factory = CertificateFactory.getInstance("X.509")
+        for (i in 0 until certArray.size()) {
+            val der = certArray[i].GetByteString()
+            certificates += factory.generateCertificate(ByteArrayInputStream(der)) as X509Certificate
         }
-        return json.toByteArray(StandardCharsets.UTF_8)
+        return DeviceResponse(issuerSigned, deviceSignature, certificates)
     }
 
-    private fun ByteArray.toBase64(): String = Base64.encodeToString(this, Base64.NO_WRAP)
+    private fun buildAuditEntries(issuer: VerifiedIssuer, signatureValid: Boolean, elements: Set<String>): List<String> =
+        buildList {
+            add("issuer=${issuer.signerCert.subjectX500Principal.name}")
+            add("signatureValid=$signatureValid")
+            add("elements=${elements.joinToString()}")
+        }
+
+    data class ActiveSession(
+        val request: VerificationRequest,
+        val transport: SessionTransport,
+        val engagement: EngagementSession,
+    )
+
+    data class SessionTransport(
+        val type: TransportType,
+        val transport: EngagementTransport,
+    )
+
+    data class VerificationRequest(
+        val docType: String,
+        val elements: List<String>,
+        val nonce: ByteArray,
+        val verifierPublicKey: ByteArray,
+    )
+
+    data class VerificationResult(
+        val isSuccess: Boolean,
+        val minimalClaims: Map<String, Any?>,
+        val portrait: ByteArray?,
+        val audit: List<String>,
+    )
+
+    private data class DeviceResponse(
+        val issuerSigned: ByteArray,
+        val deviceSignature: ByteArray,
+        val deviceCertificates: List<X509Certificate>,
+    )
 
     companion object {
+        private const val PORTRAIT_KEY = "portrait"
         private const val TAG = "SessionManager"
     }
 }
-
-/** Active session metadata tracked by the kiosk state machine. */
-data class ActiveSession(
-    val id: String,
-    val request: PresentationRequest,
-    val transport: Transport,
-    val expectedFormat: DeviceResponseFormat,
-    val transcript: ByteArray,
-    val engagementPayload: ByteArray?,
-)

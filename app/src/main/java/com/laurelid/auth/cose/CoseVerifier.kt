@@ -1,6 +1,7 @@
 package com.laurelid.auth.cose
 
 import COSE.HeaderKeys
+import COSE.Message
 import COSE.OneKey
 import COSE.Sign1Message
 import com.laurelid.auth.session.VerificationError
@@ -9,8 +10,8 @@ import com.upokecenter.cbor.CBORObject
 import java.io.ByteArrayInputStream
 import java.security.MessageDigest
 import java.security.cert.CertPathValidator
-import java.security.cert.CertificateFactory
 import java.security.cert.CertificateExpiredException
+import java.security.cert.CertificateFactory
 import java.security.cert.CertificateNotYetValidException
 import java.security.cert.PKIXParameters
 import java.security.cert.TrustAnchor
@@ -43,7 +44,10 @@ class DefaultCoseVerifier @Inject constructor() : CoseVerifier {
         trustAnchors: List<X509Certificate>,
         at: Instant,
     ): VerifiedIssuer {
-        val message = Sign1Message.DecodeFromBytes(payload)
+        val decoded = Message.DecodeFromBytes(payload)
+        val message = (decoded as? Sign1Message)
+            ?: throw VerificationError.IssuerUntrusted("MSO is not COSE_Sign1")
+
         val certificates = extractCertificates(message)
         if (certificates.isEmpty()) {
             throw VerificationError.IssuerUntrusted("MSO missing signer certificate")
@@ -61,12 +65,14 @@ class DefaultCoseVerifier @Inject constructor() : CoseVerifier {
         } catch (notYetValid: CertificateNotYetValidException) {
             throw VerificationError.IssuerUntrusted("Issuer certificate not yet valid", notYetValid)
         }
+
         if (!message.validate(OneKey(signer.publicKey, null))) {
             throw VerificationError.IssuerUntrusted("Issuer signature validation failed")
         }
 
-        val payloadCbor = message.payload ?: throw VerificationError.IssuerUntrusted("MSO missing payload")
-        val claims = decodeClaims(payloadCbor) // COSE/issuer processing per ISO/IEC 18013-5 §9. 【ISO18013-5§9】
+        val payloadCbor = message.GetContent()
+            ?: throw VerificationError.IssuerUntrusted("MSO payload missing")
+        val claims = decodeClaims(payloadCbor) // ISO/IEC 18013-5 §9
         return VerifiedIssuer(signer, claims)
     }
 
@@ -76,7 +82,8 @@ class DefaultCoseVerifier @Inject constructor() : CoseVerifier {
         deviceChain: List<X509Certificate>,
     ): Boolean {
         if (deviceChain.isEmpty()) return false
-        val message = Sign1Message.DecodeFromBytes(deviceSignature)
+        val decoded = Message.DecodeFromBytes(deviceSignature)
+        val message = (decoded as? Sign1Message) ?: return false
         val aad = MessageDigest.getInstance("SHA-256").digest(transcript)
         message.setExternal(aad)
         val publicKey = deviceChain.first().publicKey
@@ -95,7 +102,13 @@ class DefaultCoseVerifier @Inject constructor() : CoseVerifier {
 
     private fun extractCertificates(message: Sign1Message): List<X509Certificate> {
         val header = message.protectedAttributes
-        val chain = header[HeaderKeys.X5CHAIN.AsCBOR()] ?: return emptyList()
+        // Try known label, then raw label (33) as fallback to handle older/newer COSE libs.
+        val x5ChainKey = try { HeaderKeys.X5CHAIN.AsCBOR() } catch (_: Throwable) { null }
+        val chain = when {
+            x5ChainKey != null && header.ContainsKey(x5ChainKey) -> header[x5ChainKey]
+            header.ContainsKey(CBORObject.FromObject(33)) -> header[CBORObject.FromObject(33)]
+            else -> return emptyList()
+        }
         val cf = CertificateFactory.getInstance("X.509")
         val certificates = ArrayList<X509Certificate>()
         for (index in 0 until chain.size()) {
@@ -148,4 +161,3 @@ class DefaultCoseVerifier @Inject constructor() : CoseVerifier {
         return claims
     }
 }
-

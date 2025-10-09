@@ -1,3 +1,4 @@
+// settings.gradle.kts
 pluginManagement {
   repositories {
     google()
@@ -18,8 +19,11 @@ dependencyResolutionManagement {
   repositories {
     google()
     mavenCentral()
-    // Needed for org.signal:hpke(-android)
-    maven("https://storage.googleapis.com/maven.signal.org")
+
+    // Signal’s GCS mirror (secondary)
+    maven("https://storage.googleapis.com/maven.signal.org") {
+      content { includeGroup("org.signal") }
+    }
   }
   versionCatalogs {
     create("libs") {

@@ -1,88 +1,128 @@
+// app/src/main/java/com/laurelid/ui/kiosk/KioskViewModel.kt
 package com.laurelid.ui.kiosk
 
 import android.graphics.Bitmap
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.google.zxing.BarcodeFormat
-import com.google.zxing.qrcode.QRCodeWriter
-import com.laurelid.deviceengagement.TransportType
-import com.laurelid.mdoc.ActiveSession
-import com.laurelid.mdoc.SessionManager
-import com.laurelid.mdoc.VerificationResult
+import com.laurelid.auth.deviceengagement.TransportType
+import com.laurelid.util.Logger
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-/** ViewModel driving the kiosk Verify with Wallet UX. */
+// Use the auth SessionManager explicitly to avoid ambiguity with mdoc version
+import com.laurelid.auth.session.SessionManager as AuthSessionManager
+import com.laurelid.auth.session.WebEngagementTransport as AuthWebEngagementTransport
+
 @HiltViewModel
 class KioskViewModel @Inject constructor(
-    private val sessionManager: SessionManager,
+    private val sessionManager: AuthSessionManager,
+    private val webTransport: AuthWebEngagementTransport,
 ) : ViewModel() {
 
-    private val _state = MutableStateFlow<KioskState>(KioskState.Idle)
-    val state: StateFlow<KioskState> = _state
+    private val _state = MutableStateFlow(UiState())
+    val state: StateFlow<UiState> = _state.asStateFlow()
 
-    private var activeSession: ActiveSession? = null
+    // Keep track of the active session so we can decrypt/cleanup
+    private var activeSession: AuthSessionManager.ActiveSession? = null
 
-    fun startSession(preferred: TransportType = TransportType.QR) {
+    init {
+        // Reflect QR changes from the web transport into UI state
         viewModelScope.launch {
-            _state.value = KioskState.Engaging
-            runCatching { sessionManager.startSession(preferred) }
-                .onSuccess { session ->
-                    activeSession = session
-                    val qrBitmap = sessionManager.handshakePayload(session)?.let(::renderQr)
-                    _state.value = KioskState.WaitingApproval(session.id, qrBitmap)
-                }
-                .onFailure { error ->
-                    _state.value = KioskState.Failed(error.message ?: "Unable to start session")
+            webTransport.qrCodes()
+                .filterNotNull()
+                .collect { qr ->
+                    _state.update {
+                        it.copy(
+                            qr = QrUi(sessionId = qr.sessionId, bitmap = qr.bitmap),
+                            status = "Show QR to wallet",
+                            loading = false,
+                            resultText = null
+                        )
+                    }
                 }
         }
     }
 
-    fun onCiphertextReceived(payload: ByteArray) {
+    fun startWebSession() {
+        viewModelScope.launch {
+            _state.update { it.copy(status = "Starting session…", loading = true, resultText = null) }
+            try {
+                val session = sessionManager.createSession(TransportType.WEB)
+                activeSession = session
+                _state.update { it.copy(status = "Waiting for wallet…", loading = false) }
+            } catch (t: Throwable) {
+                Logger.e(TAG, "Failed to start session", t)
+                _state.update { it.copy(status = "Failed to start session", loading = false, resultText = t.message) }
+            }
+        }
+    }
+
+    fun cancelSession() {
+        viewModelScope.launch {
+            try {
+                sessionManager.cancel()
+            } catch (_: Throwable) {
+                // ignore
+            } finally {
+                activeSession = null
+                _state.value = UiState(status = "Idle")
+            }
+        }
+    }
+
+    /**
+     * Provide the HPKE ciphertext received from the wallet. On success, updates result banner.
+     */
+    fun onCiphertextReceived(ciphertext: ByteArray) {
         val session = activeSession ?: return
         viewModelScope.launch {
-            _state.value = KioskState.Decrypting
-            val result = runCatching { sessionManager.processCiphertext(session, payload) }
-            result.onSuccess(::handleResult).onFailure { error ->
-                _state.value = KioskState.Failed(error.message ?: "Decryption failed")
+            _state.update { it.copy(status = "Decrypting…", loading = true) }
+            runCatching {
+                sessionManager.decryptAndVerify(session, ciphertext)
+            }.onSuccess { result ->
+                val verdict = if (result.isSuccess) "Verified" else "Denied"
+                _state.update {
+                    it.copy(
+                        status = "Result: $verdict",
+                        loading = false,
+                        resultText = buildString {
+                            append(verdict)
+                            if (result.minimalClaims.isNotEmpty()) {
+                                append(" • ")
+                                append(result.minimalClaims.entries.joinToString { e -> "${e.key}=${e.value}" })
+                            }
+                        }
+                    )
+                }
+                if (result.isSuccess) {
+                    activeSession = null
+                }
+            }.onFailure { t ->
+                Logger.e(TAG, "Verification failed", t)
+                _state.update { it.copy(status = "Verification failed", loading = false, resultText = t.message) }
             }
         }
     }
 
-    fun reset() {
-        viewModelScope.launch {
-            sessionManager.cancel()
-            activeSession = null
-            _state.value = KioskState.Idle
-        }
-    }
+    data class UiState(
+        val status: String = "Idle",
+        val loading: Boolean = false,
+        val qr: QrUi? = null,
+        val resultText: String? = null,
+    )
 
-    private fun handleResult(result: VerificationResult) {
-        _state.value = if (result.isSuccess) {
-            KioskState.Verified(result)
-        } else {
-            KioskState.Denied(result, reason = "Device attestation invalid")
-        }
-    }
-
-    private fun renderQr(payload: ByteArray): Bitmap {
-        val writer = QRCodeWriter()
-        val matrix = writer.encode(String(payload, Charsets.UTF_8), BarcodeFormat.QR_CODE, QR_SIZE, QR_SIZE)
-        val bitmap = Bitmap.createBitmap(matrix.width, matrix.height, Bitmap.Config.ARGB_8888)
-        for (x in 0 until matrix.width) {
-            for (y in 0 until matrix.height) {
-                bitmap.setPixel(x, y, if (matrix.get(x, y)) QR_FOREGROUND else QR_BACKGROUND)
-            }
-        }
-        return bitmap
-    }
+    data class QrUi(
+        val sessionId: String?,
+        val bitmap: Bitmap?
+    )
 
     companion object {
-        private const val QR_SIZE = 800
-        private const val QR_FOREGROUND = 0xFF000000.toInt()
-        private const val QR_BACKGROUND = 0xFFFFFFFF.toInt()
+        private const val TAG = "KioskViewModel"
     }
 }

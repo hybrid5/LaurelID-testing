@@ -1,4 +1,4 @@
-// Root build.gradle.kts
+// build.gradle.kts (root)
 import io.gitlab.arturbosch.detekt.extensions.DetektExtension
 import org.gradle.api.artifacts.VersionCatalogsExtension
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget

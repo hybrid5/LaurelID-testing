@@ -18,6 +18,7 @@ import javax.inject.Singleton
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import com.laurelid.auth.session.SessionManager.VerificationRequest
 
 /** Common contract for engagement transports (ISO/IEC 18013-5 §7). */
 interface EngagementTransport {
@@ -153,9 +154,7 @@ class NfcEngagementTransport @Inject constructor(
         } catch (t: Throwable) {
             Logger.e(TAG, "Failed to read NFC tag", t)
         } finally {
-            try { ndef?.close() } catch (_: Throwable) {
-                // ignore
-            }
+            try { ndef?.close() } catch (_: Throwable) { /* ignore */ }
         }
     }
 
@@ -168,9 +167,9 @@ class NfcEngagementTransport @Inject constructor(
         private const val TAG = "NfcEngagement"
         private const val NFC_FLAGS =
             NfcAdapter.FLAG_READER_NFC_A or
-                NfcAdapter.FLAG_READER_NFC_B or
-                NfcAdapter.FLAG_READER_SKIP_NDEF_CHECK or
-                NfcAdapter.FLAG_READER_NO_PLATFORM_SOUNDS
+                    NfcAdapter.FLAG_READER_NFC_B or
+                    NfcAdapter.FLAG_READER_SKIP_NDEF_CHECK or
+                    NfcAdapter.FLAG_READER_NO_PLATFORM_SOUNDS
     }
 }
 
@@ -187,4 +186,3 @@ class BleEngagementTransport @Inject constructor() : EngagementTransport {
 fun interface NfcAdapterProvider {
     fun get(): NfcAdapter?
 }
-

@@ -7,13 +7,11 @@ import java.nio.ByteBuffer
 import java.security.KeyPair
 import java.security.KeyPairGenerator
 import java.security.KeyStore
-import java.security.cert.CertificateException
 import java.security.interfaces.XECPrivateKey
 import java.security.interfaces.XECPublicKey
 import java.security.spec.NamedParameterSpec
 import java.time.Instant
 import java.util.concurrent.atomic.AtomicReference
-import javax.crypto.SecretKey
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.sync.Mutex
@@ -152,6 +150,7 @@ class AndroidHpkeKeyProvider @Inject constructor() : HpkeKeyProvider {
         return pair
     }
 
+    @Suppress("unused")
     private fun delete(alias: String) {
         if (keyStore.containsAlias(alias)) {
             keyStore.deleteEntry(alias)
@@ -166,7 +165,7 @@ class AndroidHpkeKeyProvider @Inject constructor() : HpkeKeyProvider {
     }
 }
 
-/** HPKE decryptor built on top of the Signal HPKE library. */
+/** HPKE decryptor built on top of BouncyCastle's HPKE implementation. */
 @Singleton
 class BouncyCastleHpkeEngine @Inject constructor(
     private val keyProvider: HpkeKeyProvider,
@@ -254,7 +253,7 @@ class InMemoryHpkeKeyProvider(private val keyPair: KeyPair) : HpkeKeyProvider {
     override fun getPublicKeyBytes(): ByteArray = (keyPair.public as XECPublicKey).u.toByteArray()
     override fun getPrivateKeyParameters(): AsymmetricKeyParameter {
         val privateKey = keyPair.private as XECPrivateKey
-        val scalar = privateKey.scalar ?: throw CertificateException("Missing scalar")
+        val scalar = privateKey.scalar ?: error("Missing scalar")
         return X25519PrivateKeyParameters(scalar, 0)
     }
     override fun installDebugKey(alias: String, privateKey: ByteArray) = Unit
@@ -266,3 +265,13 @@ data class HpkeKeyMetadata(
     val createdAt: Instant,
 )
 
+/** Minimal secure byte holder to avoid accidental logging/leaks. */
+class SecureBytes private constructor(private val bytes: ByteArray) : AutoCloseable {
+    fun copy(): ByteArray = bytes.copyOf()
+    override fun close() {
+        for (i in bytes.indices) bytes[i] = 0
+    }
+    companion object {
+        fun wrap(b: ByteArray) = SecureBytes(b)
+    }
+}

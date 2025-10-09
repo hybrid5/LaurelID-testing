@@ -1,7 +1,7 @@
 package com.laurelid.ui.verify
 
 import android.graphics.Bitmap
-import com.laurelid.verifier.core.VerificationResult
+import com.laurelid.auth.session.SessionManager.VerificationResult
 
 data class VerificationUiState(
     val stage: Stage = Stage.WAITING,

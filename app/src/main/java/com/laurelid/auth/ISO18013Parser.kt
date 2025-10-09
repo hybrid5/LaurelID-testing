@@ -3,6 +3,7 @@ package com.laurelid.auth
 import com.laurelid.auth.deviceengagement.DeviceEngagementParser
 import com.laurelid.auth.deviceengagement.TransportFactory
 import com.laurelid.auth.deviceengagement.TransportMessage
+import kotlinx.coroutines.runBlocking
 import com.laurelid.util.Logger
 import javax.inject.Inject
 
@@ -22,11 +23,13 @@ class ISO18013Parser @Inject constructor(
             val engagement = engagementParser.parse(payload)
             val transport = transportFactory.create(engagement)
             try {
-                transport.start()
-                val message: TransportMessage = transport.receive()
+                val message: TransportMessage = runBlocking {
+                    transport.start()
+                    transport.receive()
+                }
                 deviceResponseParser.parse(message)
             } finally {
-                transport.stop()
+                runBlocking { transport.stop() }
             }
         } catch (error: MdocParseException) {
             Logger.e(TAG, "Failed to process device engagement", error)

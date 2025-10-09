@@ -1,4 +1,4 @@
-package com.laurelid.verifier.core
+package com.laurelid.auth.session
 
 import com.laurelid.BuildConfig
 
@@ -10,3 +10,4 @@ object VerifierFeatureFlags {
     val nfcEnabled: Boolean = BuildConfig.TRANSPORT_NFC_ENABLED
     val bleEnabled: Boolean = BuildConfig.TRANSPORT_BLE_ENABLED
 }
+

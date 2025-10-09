@@ -29,15 +29,16 @@ class DeviceEngagementParser @Inject constructor() {
         val retrievalMethods = extractRetrievalMethods(cbor)
         val descriptors = retrievalMethods.mapNotNull { parseTransportDescriptor(it) }
 
+        val web = descriptors.firstOrNull { it.type == TransportType.WEB }
         val nfc = descriptors.firstOrNull { it.type == TransportType.NFC }
         val ble = descriptors.firstOrNull { it.type == TransportType.BLE }
 
-        if (nfc == null && ble == null) {
+        if (web == null && nfc == null && ble == null) {
             throw MdocParseException(
-                MdocError.UnsupportedTransport("Device engagement did not advertise an NFC or BLE handover")
+                MdocError.UnsupportedTransport("Device engagement did not advertise a supported handover")
             )
         }
-        return DeviceEngagement(version = version, nfc = nfc, ble = ble)
+        return DeviceEngagement(version = version, web = web, nfc = nfc, ble = ble)
     }
 
     private fun parseUri(payload: String): URI {
@@ -176,11 +177,13 @@ class DeviceEngagementParser @Inject constructor() {
         if (candidate == null) return null
         return when (candidate.getType()) {
             CBORType.TextString -> when (candidate.AsString().lowercase(LocaleRoot)) {
+                "web", "http", "https" -> TransportType.WEB
                 "nfc" -> TransportType.NFC
                 "ble", "bluetooth" -> TransportType.BLE
                 else -> null
             }
             CBORType.Integer -> when (candidate.AsInt32Value()) {
+                2 -> TransportType.WEB
                 0 -> TransportType.NFC
                 1 -> TransportType.BLE
                 else -> null

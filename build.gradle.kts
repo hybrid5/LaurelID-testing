@@ -1,23 +1,25 @@
 // Root build.gradle.kts
+import io.gitlab.arturbosch.detekt.extensions.DetektExtension
+import org.gradle.accessors.dm.LibrariesForLibs
+import org.gradle.kotlin.dsl.the
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.dsl.KotlinAndroidProjectExtension
 import org.jetbrains.kotlin.gradle.dsl.KotlinJvmProjectExtension
-import io.gitlab.arturbosch.detekt.extensions.DetektExtension
 import org.jlleitschuh.gradle.ktlint.KtlintExtension
 
+val libs = the<LibrariesForLibs>()
+
 plugins {
-  id("com.android.application") version "8.13.0" apply false
-  id("com.android.library")     version "8.13.0" apply false
-
-  // Keep Kotlin and KSP aligned
-  id("org.jetbrains.kotlin.android")          version "2.0.21" apply false
-  id("org.jetbrains.kotlin.plugin.parcelize") version "2.0.21" apply false
-  id("org.jetbrains.kotlin.kapt")             version "2.0.21" apply false
-  id("com.google.devtools.ksp")               version "2.0.21-1.0.25" apply false
-
-  id("com.google.dagger.hilt.android")        version "2.57.2" apply false
-  id("org.jlleitschuh.gradle.ktlint")         version "13.1.0" apply false
-  id("io.gitlab.arturbosch.detekt")           version "1.23.8" apply false
+  alias(libs.plugins.android.application) apply false
+  alias(libs.plugins.android.library) apply false
+  alias(libs.plugins.kotlin.android) apply false
+  alias(libs.plugins.kotlin.parcelize) apply false
+  alias(libs.plugins.kotlin.kapt) apply false
+  alias(libs.plugins.ksp) apply false
+  alias(libs.plugins.hilt.android.plugin) apply false
+  alias(libs.plugins.ktlint) apply false
+  alias(libs.plugins.detekt) apply false
+  alias(libs.plugins.androidx.baselineprofile) apply false
 }
 
 subprojects {
@@ -53,7 +55,7 @@ subprojects {
   }
 
   dependencies {
-    add("detektPlugins", "io.gitlab.arturbosch.detekt:detekt-formatting:1.23.8")
+    add("detektPlugins", "io.gitlab.arturbosch.detekt:detekt-formatting:${libs.versions.detekt.get()}")
   }
 }
 

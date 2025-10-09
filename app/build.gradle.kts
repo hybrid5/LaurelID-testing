@@ -10,8 +10,6 @@ plugins {
   id("com.google.dagger.hilt.android")
 }
 
-// ❌ No classpath surgery or forcing on KSP configs. Let Room bring its own Kotlin on the processor CP.
-
 android {
   namespace = "com.laurelid"
   compileSdk = 36
@@ -22,6 +20,7 @@ android {
     targetSdk = 36
     versionCode = 1
     versionName = "1.0"
+
     buildConfigField("long", "PLAY_INTEGRITY_PROJECT_NUMBER", "0L")
     buildConfigField("boolean", "USE_OFFLINE_TEST_VECTORS", "false")
     buildConfigField("boolean", "DEVPROFILE_MODE", "false")
@@ -116,18 +115,13 @@ kotlin {
   compilerOptions { jvmTarget.set(JvmTarget.JVM_17) }
 }
 
-// KAPT only for Hilt
 kapt { correctErrorTypes = true }
-
-// KSP options (Room)
-ksp {
-  arg("room.generateKotlin", "true")
-}
+ksp { arg("room.generateKotlin", "true") }
 
 dependencies {
-  // Keep your libs.versions.toml Room at 2.8.1 (don't use 2.8.3)
+  // Kotlin BOM (align with plugin 2.0.21) + coroutines BOM
+  implementation(platform("org.jetbrains.kotlin:kotlin-bom:2.0.21"))
   implementation(platform("org.jetbrains.kotlinx:kotlinx-coroutines-bom:1.10.2"))
-  implementation(platform(kotlin("bom", "2.0.20")))
   implementation(kotlin("stdlib"))
   implementation(kotlin("reflect"))
 
@@ -135,6 +129,11 @@ dependencies {
   implementation(libs.androidx.appcompat)
   implementation(libs.material)
 
+  // viewModels() and lifecycle ViewModel
+  implementation("androidx.activity:activity-ktx:1.9.3")
+  implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.9.4")
+
+  // ZXing (if used elsewhere)
   implementation(libs.zxing.core)
 
   // CameraX
@@ -143,7 +142,7 @@ dependencies {
   implementation(libs.androidx.camera.lifecycle)
   implementation(libs.androidx.camera.view)
 
-  // Room — KSP
+  // Room via KSP
   implementation(libs.room.runtime)
   implementation(libs.room.ktx)
   ksp(libs.room.compiler)
@@ -163,19 +162,24 @@ dependencies {
   implementation(libs.bouncycastle.bcprov)
   implementation(libs.bouncycastle.bcpkix)
 
-  // Hilt — via KAPT
+  // Hilt
   implementation(libs.hilt.android)
   kapt(libs.hilt.compiler)
 
-  // ML Kit & Play Integrity
+  // ML Kit + coroutines bridge
   implementation("com.google.mlkit:barcode-scanning:17.3.0")
-  implementation(libs.play.integrity)
+  implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.10.2")
   implementation("com.google.android.gms:play-services-tasks:18.4.0")
 
-  // Optional: ensure the API version matches the KSP plugin version you declared
-  constraints {
-    add("ksp", "com.google.devtools.ksp:symbol-processing-api:2.0.21-1.0.24")
-  }
+  // Play Integrity (use your version catalog)
+  implementation(libs.play.integrity)
+
+  // COSE/CBOR (explicit — also in versions catalog above)
+  implementation("com.augustcellars.cose:cose-java:1.1.0")
+  implementation("com.upokecenter:cbor:4.5.6")
+
+  // HPKE (Signal) — Android target; requires Signal repo in settings.gradle.kts
+  implementation("org.signal:hpke-android:0.0.4")
 
   testImplementation(libs.kotlinx.coroutines.test)
 }

@@ -1,9 +1,9 @@
 package com.laurelid.verifier.transport
 
 import android.app.Activity
-import android.nfc.Ndef
 import android.nfc.NfcAdapter
 import android.nfc.Tag
+import android.nfc.tech.Ndef
 import android.os.Bundle
 import com.laurelid.util.Logger
 import java.lang.ref.WeakReference
@@ -59,25 +59,33 @@ class NfcEngagementTransport @Inject constructor(
     }
 
     override fun onTagDiscovered(tag: Tag) {
-        runCatching {
-            val ndef = Ndef.get(tag)
-            if (ndef != null) {
-                ndef.connect()
-                val message = ndef.ndefMessage
-                val payload = message?.records?.firstOrNull()?.payload ?: ByteArray(0)
-                val engagement = sessionRef.get() ?: return
-                val updatedTranscript = engagement.transcript + payload
-                val updated = engagement.copy(
-                    transcript = updatedTranscript,
-                    peerInfo = payload,
-                )
-                sessionRef.set(updated)
-                sessionFlow.value = updated
-                Logger.i(TAG, "NFC engagement payload=${payload.decodeToStringOrHex()}")
-                ndef.close()
-            }
-        }.onFailure { error ->
-            Logger.e(TAG, "Failed to read NFC tag", error)
+        val engagement = sessionRef.get() ?: return
+        var ndef: Ndef? = null
+        try {
+            ndef = Ndef.get(tag) ?: return
+            ndef.connect()
+
+            val payload: ByteArray = ndef.ndefMessage
+                ?.records?.firstOrNull()?.payload
+                ?: ByteArray(0)
+
+            // Ignore empty reads / duplicate consecutive payloads
+            if (payload.isEmpty() || payload.contentEquals(engagement.peerInfo)) return
+
+            val updated = engagement.copy(
+                transcript = engagement.transcript + payload,
+                peerInfo = payload,
+            )
+            sessionRef.set(updated)
+            sessionFlow.value = updated
+            Logger.i(TAG, "NFC engagement payload=${payload.decodeToStringOrHex()}")
+
+            // If your flow is single-shot, you can stop reader mode after first successful read:
+            // activityRef.get()?.get()?.let { adapterProvider.get()?.disableReaderMode(it) }
+        } catch (t: Throwable) {
+            Logger.e(TAG, "Failed to read NFC tag", t)
+        } finally {
+            try { ndef?.close() } catch (_: Throwable) {}
         }
     }
 
@@ -90,8 +98,9 @@ class NfcEngagementTransport @Inject constructor(
         private const val TAG = "NfcEngagement"
         private const val NFC_FLAGS =
             NfcAdapter.FLAG_READER_NFC_A or
-                NfcAdapter.FLAG_READER_NFC_B or
-                NfcAdapter.FLAG_READER_SKIP_NDEF_CHECK
+                    NfcAdapter.FLAG_READER_NFC_B or
+                    NfcAdapter.FLAG_READER_SKIP_NDEF_CHECK or
+                    NfcAdapter.FLAG_READER_NO_PLATFORM_SOUNDS
     }
 }
 

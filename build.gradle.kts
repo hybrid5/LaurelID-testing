@@ -1,5 +1,4 @@
 // Root build.gradle.kts
-
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.dsl.KotlinAndroidProjectExtension
 import org.jetbrains.kotlin.gradle.dsl.KotlinJvmProjectExtension
@@ -10,21 +9,19 @@ plugins {
   id("com.android.application") version "8.13.0" apply false
   id("com.android.library")     version "8.13.0" apply false
 
-  // Use a KSP build that exists; keep Kotlin and KSP in the same minor line
+  // Keep Kotlin and KSP aligned
   id("org.jetbrains.kotlin.android")          version "2.0.21" apply false
   id("org.jetbrains.kotlin.plugin.parcelize") version "2.0.21" apply false
   id("org.jetbrains.kotlin.kapt")             version "2.0.21" apply false
-  id("com.google.devtools.ksp")               version "2.0.21-1.0.24" apply false
+  id("com.google.devtools.ksp")               version "2.0.21-1.0.25" apply false
 
   id("com.google.dagger.hilt.android")        version "2.57.2" apply false
   id("org.jlleitschuh.gradle.ktlint")         version "13.1.0" apply false
   id("io.gitlab.arturbosch.detekt")           version "1.23.8" apply false
 }
 
-// Do NOT force Kotlin artifacts globally. Let processors (Room) pick newer stdlib if they need it.
-
 subprojects {
-  // JVM toolchain for all Kotlin projects
+  // JVM toolchain for Kotlin projects
   plugins.withId("org.jetbrains.kotlin.android") {
     extensions.findByType(KotlinAndroidProjectExtension::class.java)?.apply {
       jvmToolchain(17)

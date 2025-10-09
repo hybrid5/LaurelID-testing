@@ -1,10 +1,15 @@
-// settings.gradle.kts
 pluginManagement {
   repositories {
     google()
     mavenCentral()
     gradlePluginPortal()
-    maven("https://plugins.gradle.org/m2/")
+  }
+  resolutionStrategy {
+    eachPlugin {
+      if (requested.id.id == "com.google.devtools.ksp") {
+        useModule("com.google.devtools.ksp:com.google.devtools.ksp.gradle.plugin:${requested.version}")
+      }
+    }
   }
 }
 
@@ -13,6 +18,8 @@ dependencyResolutionManagement {
   repositories {
     google()
     mavenCentral()
+    // Needed for org.signal:hpke(-android)
+    maven("https://storage.googleapis.com/maven.signal.org")
   }
 }
 

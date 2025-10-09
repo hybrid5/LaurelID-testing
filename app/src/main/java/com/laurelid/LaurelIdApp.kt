@@ -4,6 +4,7 @@ import android.app.Application
 import com.laurelid.kiosk.KioskDeviceOwnerManager
 import com.laurelid.observability.IEventExporter
 import com.laurelid.observability.StructuredEventLogger
+import com.laurelid.trust.TrustBootstrap
 import com.laurelid.util.LogManager
 import com.laurelid.util.Logger
 import dagger.hilt.android.HiltAndroidApp
@@ -19,12 +20,16 @@ class LaurelIdApp : Application() {
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     @Inject lateinit var logManager: LogManager
+    @Inject lateinit var trustBootstrap: TrustBootstrap
     @Inject lateinit var eventExporter: IEventExporter
 
     override fun onCreate() {
         super.onCreate()
 
         Logger.i("App", "LaurelID kiosk application initialized")
+
+        runCatching { trustBootstrap.initialize() }
+            .onFailure { Logger.e("App", "Failed to bootstrap trust anchors", it) }
 
         // Register telemetry/logging safely
         StructuredEventLogger.registerExporter(eventExporter)

@@ -115,7 +115,7 @@ class DefaultCoseVerifier @Inject constructor() : CoseVerifier {
         }
         val trustAnchors = anchors.map { TrustAnchor(it, null) }.toSet()
         if (trustAnchors.isEmpty()) {
-            throw VerificationError.TrustAnchorsUnavailable("No IACA trust anchors configured")
+            throw VerificationError.IssuerTrustUnavailable("No IACA trust anchors configured")
         }
         val cf = CertificateFactory.getInstance("X.509")
         val certPath = cf.generateCertPath(chain)

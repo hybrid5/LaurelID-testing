@@ -1,5 +1,7 @@
 // app/build.gradle.kts
 import java.util.Properties
+import java.security.cert.CertificateFactory
+import java.security.cert.X509Certificate
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
@@ -39,6 +41,7 @@ android {
     buildConfigField("boolean", "TRANSPORT_QR_ENABLED", "true")
     buildConfigField("boolean", "TRANSPORT_NFC_ENABLED", "true")
     buildConfigField("boolean", "TRANSPORT_BLE_ENABLED", "false")
+    buildConfigField("boolean", "DEV_MODE", "false")
   }
 
   flavorDimensions += listOf("environment")
@@ -51,6 +54,7 @@ android {
       buildConfigField("long","TRUST_LIST_CACHE_MAX_AGE_MILLIS","43200000L")
       buildConfigField("long","TRUST_LIST_CACHE_STALE_TTL_MILLIS","259200000L")
       buildConfigField("long","TRUST_LIST_PIN_EXPIRY_GRACE_MILLIS","1209600000L")
+      buildConfigField("boolean","DEV_MODE","true")
       buildConfigField("String","TRUST_LIST_MANIFEST_ROOT_CERT","\"MIIBmzCCAUGgAwIBAgIULLaYvR7QSKLfmVPR5XFwG8lyFsowCgYIKoZIzj0EAwIwIzEhMB8GA1UEAwwYTGF1cmVsSUQgVGVzdCBUcnVzdCBSb290MB4XDTI1MTAwMjAwMDQzMloXDTM1MDkzMDAwMDQzMlowIzEhMB8GA1UEAwwYTGF1cmVsSUQgVGVzdCBUcnVzdCBSb290MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEyrjywG4CQfVfu7CtKnWRmTQUR9OX/aNoWV6kJDiLjDOzywT8Q+0K3kALe/ia4u2VBOjjKYMS2jcqcs5TJZwrsqNTMFEwHQYDVR0OBBYEFKIg2A8F65q0WEuYC9We9JIxIloHMB8GA1UdIwQYMBaAFKIg2A8F65q0WEuYC9We9JIxIloHMA8GA1UdEwEB/wQFMAMBAf8wCgYIKoZIzj0EAwIDSAAwRQIhAPHz3+yopBOVPO6QBvlhHkC9iUNp4Hw6K2zUJOr9MEyVAiA7/885IjIOYQod4TL7qKqu4pDchuhJVvzd+NK/BQz3EQ==\"")
       buildConfigField("boolean","USE_APPLE_EXTERNAL_VERIFIER","true")
     }
@@ -62,6 +66,7 @@ android {
       buildConfigField("long","TRUST_LIST_CACHE_MAX_AGE_MILLIS","43200000L")
       buildConfigField("long","TRUST_LIST_CACHE_STALE_TTL_MILLIS","259200000L")
       buildConfigField("long","TRUST_LIST_PIN_EXPIRY_GRACE_MILLIS","1209600000L")
+      buildConfigField("boolean","DEV_MODE","false")
       buildConfigField("String","TRUST_LIST_MANIFEST_ROOT_CERT","\"MIIBmzCCAUGgAwIBAgIULLaYvR7QSKLfmVPR5XFwG8lyFsowCgYIKoZIzj0EAwIwIzEhMB8GA1UEAwwYTGF1cmVsSUQgVGVzdCBUcnVzdCBSb290MB4XDTI1MTAwMjAwMDQzMloXDTM1MDkzMDAwMDQzMlowIzEhMB8GA1UEAwwYTGF1cmVsSUQgVGVzdCBUcnVzdCBSb290MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEyrjywG4CQfVfu7CtKnWRmTQUR9OX/aNoWV6kJDiLjDOzywT8Q+0K3kALe/ia4u2VBOjjKYMS2jcqcs5TJZwrsqNTMFEwHQYDVR0OBBYEFKIg2A8F65q0WEuYC9We9JIxIloHMB8GA1UdIwQYMBaAFKIg2A8F65q0WEuYC9We9JIxIloHMA8GA1UdEwEB/wQFMAMBAf8wCgYIKoZIzj0EAwIDSAAwRQIhAPHz3+yopBOVPO6QBvlhHkC9iUNp4Hw6K2zUJOr9MEyVAiA7/885IjIOYQod4TL7qKqu4pDchuhJVvzd+NK/BQz3EQ==\"")
       buildConfigField("boolean","USE_APPLE_EXTERNAL_VERIFIER","false")
     }
@@ -70,6 +75,11 @@ android {
   buildFeatures {
     viewBinding = true
     buildConfig = true
+  }
+
+  lint {
+    warningsAsErrors = true
+    abortOnError = true
   }
 
   testOptions {
@@ -128,7 +138,7 @@ android {
 }
 
 kotlin {
-  jvmToolchain(17)
+  jvmToolchain(21)
   compilerOptions { jvmTarget.set(JvmTarget.JVM_17) }
 }
 
@@ -181,4 +191,34 @@ dependencies {
   testImplementation(libs.robolectric)
   testImplementation(libs.arch.core.testing)
   testImplementation(libs.androidx.test.core)
+
+  androidTestImplementation(libs.androidx.test.ext.junit)
+  androidTestImplementation(libs.espresso.core)
+  androidTestImplementation(libs.androidx.test.core)
+}
+
+val anchorsDir = file("src/main/assets/trust/iaca")
+
+tasks.register("printAnchors") {
+    group = "trust"
+    description = "Prints bundled IACA trust anchors"
+    doLast {
+        if (!anchorsDir.exists()) {
+            println("No anchors found at ${anchorsDir.absolutePath}")
+            return@doLast
+        }
+        val factory = CertificateFactory.getInstance("X.509")
+        val files = anchorsDir.walkTopDown().filter { it.isFile && it.extension.equals("cer", true) }.toList()
+        if (files.isEmpty()) {
+            println("No anchors found at ${anchorsDir.absolutePath}")
+            return@doLast
+        }
+        println("Found ${files.size} trust anchor(s)")
+        files.sortedBy { it.name }.forEach { file ->
+            file.inputStream().use { input ->
+                val cert = factory.generateCertificate(input) as X509Certificate
+                println("- ${cert.subjectX500Principal.name} (expires ${cert.notAfter})")
+            }
+        }
+    }
 }

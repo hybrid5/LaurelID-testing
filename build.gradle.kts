@@ -23,13 +23,13 @@ subprojects {
   // JVM toolchain for Kotlin projects
   plugins.withId("org.jetbrains.kotlin.android") {
     extensions.findByType(KotlinAndroidProjectExtension::class.java)?.apply {
-      jvmToolchain(17)
+      jvmToolchain(21)
       compilerOptions.jvmTarget.set(JvmTarget.JVM_17)
     }
   }
   plugins.withId("org.jetbrains.kotlin.jvm") {
     extensions.findByType(KotlinJvmProjectExtension::class.java)?.apply {
-      jvmToolchain(17)
+      jvmToolchain(21)
       compilerOptions.jvmTarget.set(JvmTarget.JVM_17)
     }
   }

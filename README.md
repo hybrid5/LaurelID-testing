@@ -1,6 +1,14 @@
 # LaurelID Kiosk MVP
 
+[![Android CI](https://github.com/LaurelID/LaurelID-testing/actions/workflows/android.yml/badge.svg)](https://github.com/LaurelID/LaurelID-testing/actions/workflows/android.yml)
+
 ## Trust List Endpoint
+
+## Adding or Updating IACA Trust Anchors
+- Drop DER-encoded `.cer` anchors into `app/src/main/assets/trust/iaca/`.
+- Staging builds load additional test roots from `app/src/staging/assets/trust/test_roots/` when `BuildConfig.DEV_MODE` is true.
+- Run `./gradlew :app:printAnchors` to list bundled anchors, subjects, and expirations.
+
 Update the trust list host by editing the `TRUST_LIST_BASE_URL` build config field inside `app/build.gradle.kts`. Staging builds allow entering an override URL in the admin settings screen; production builds ignore overrides. The Retrofit client and in-memory cache automatically use the new endpoint on the next verification attempt or explicit refresh.
 
 ## Admin & Configuration Mode
@@ -40,3 +48,8 @@ JWT-protected `POST /events` endpoint that stores events, enforces a 30-day anon
 policy, and keeps daily aggregate statistics accessible via `GET /stats`. See the backend
 [README](backend/README.md) for setup instructions and `backend/examples/send_event.py` for a
 sample integration script.
+
+### Trust anchors (local only)
+- Do **not** commit certs (.cer/.der/.jks/.p12). They are ignored by .gitignore.
+- For local testing, drop PEM/DER anchors under `app/src/main/assets/trust/iaca/`.
+- Staging DEV roots should be provided via local files or inline PEM in staging-only code paths.

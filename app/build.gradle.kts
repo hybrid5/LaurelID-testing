@@ -23,6 +23,11 @@ android {
     versionCode = 1
     versionName = "1.0"
     buildConfigField("long", "PLAY_INTEGRITY_PROJECT_NUMBER", "0L")
+    buildConfigField("boolean", "USE_OFFLINE_TEST_VECTORS", "false")
+    buildConfigField("boolean", "DEVPROFILE_MODE", "false")
+    buildConfigField("boolean", "TRANSPORT_QR_ENABLED", "true")
+    buildConfigField("boolean", "TRANSPORT_NFC_ENABLED", "true")
+    buildConfigField("boolean", "TRANSPORT_BLE_ENABLED", "false")
   }
 
   flavorDimensions += listOf("environment")
@@ -130,6 +135,8 @@ dependencies {
   implementation(libs.androidx.appcompat)
   implementation(libs.material)
 
+  implementation(libs.zxing.core)
+
   // CameraX
   implementation(libs.androidx.camera.core)
   implementation(libs.androidx.camera.camera2)
@@ -153,6 +160,8 @@ dependencies {
   // CBOR / COSE
   implementation(libs.cbor)
   implementation(libs.cose)
+  implementation(libs.bouncycastle.bcprov)
+  implementation(libs.bouncycastle.bcpkix)
 
   // Hilt — via KAPT
   implementation(libs.hilt.android)
@@ -165,6 +174,8 @@ dependencies {
 
   // Optional: ensure the API version matches the KSP plugin version you declared
   constraints {
-    add("ksp", "com.google.devtools.ksp:symbol-processing-api:2.0.20-1.0.24")
+    add("ksp", "com.google.devtools.ksp:symbol-processing-api:2.0.21-1.0.24")
   }
+
+  testImplementation(libs.kotlinx.coroutines.test)
 }

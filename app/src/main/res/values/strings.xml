@@ -75,4 +75,11 @@
     <string name="desc_debug_log_button">Show the most recent log entries</string>
     <string name="desc_result_root">Verification result screen</string>
     <string name="desc_admin_root">Administrator configuration screen</string>
+    <string name="verify_qr_description">QR engagement request</string>
+    <string name="verify_scan_prompt">Scan with Apple Wallet or compatible mDL</string>
+    <string name="verify_nfc_cta">Or tap your phone on the NFC reader</string>
+    <string name="verify_pending">Awaiting approval on your device…</string>
+    <string name="verify_portrait">Verified portrait</string>
+    <string name="verify_age_over_21">21+ Verified</string>
+    <string name="verify_result_error">Verification failed. Please retry.</string>
 </resources>

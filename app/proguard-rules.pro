@@ -24,3 +24,9 @@
 -keep interface com.laurelid.network.TrustListApi { *; }
 -keep class com.squareup.moshi.** { *; }
 -dontwarn com.squareup.moshi.**
+
+# CBOR/COSE parsing uses reflection internally for tag registration.
+-keep class com.upokecenter.cbor.** { *; }
+-keep class COSE.** { *; }
+-dontwarn com.upokecenter.cbor.**
+-dontwarn COSE.**

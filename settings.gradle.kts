@@ -21,6 +21,11 @@ dependencyResolutionManagement {
     // Needed for org.signal:hpke(-android)
     maven("https://storage.googleapis.com/maven.signal.org")
   }
+  versionCatalogs {
+    create("libs") {
+      from(files("gradle/catalogs/libs.versions.toml"))
+    }
+  }
 }
 
 rootProject.name = "LaurelID"

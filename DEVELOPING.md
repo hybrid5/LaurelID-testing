@@ -3,7 +3,7 @@
 This document describes how to exercise the Verify with Wallet flow offline using the bundled test vectors.
 
 ## Prerequisites
-- Android Studio Ladybug or newer with the AGP version defined in `gradle/libs.versions.toml` installed.
+- Android Studio Ladybug or newer with the AGP version defined in `gradle/catalogs/libs.versions.toml` installed.
 - An emulator or Elo kiosk running Android 13+.
 - The repository cloned locally with `git lfs` configured for large assets.
 

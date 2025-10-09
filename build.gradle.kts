@@ -1,13 +1,10 @@
 // Root build.gradle.kts
 import io.gitlab.arturbosch.detekt.extensions.DetektExtension
-import org.gradle.accessors.dm.LibrariesForLibs
-import org.gradle.kotlin.dsl.the
+import org.gradle.api.artifacts.VersionCatalogsExtension
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.dsl.KotlinAndroidProjectExtension
 import org.jetbrains.kotlin.gradle.dsl.KotlinJvmProjectExtension
 import org.jlleitschuh.gradle.ktlint.KtlintExtension
-
-val libs = the<LibrariesForLibs>()
 
 plugins {
   alias(libs.plugins.android.application) apply false
@@ -55,7 +52,11 @@ subprojects {
   }
 
   dependencies {
-    add("detektPlugins", "io.gitlab.arturbosch.detekt:detekt-formatting:${libs.versions.detekt.get()}")
+    val catalog = rootProject.extensions.getByType(VersionCatalogsExtension::class.java).named("libs")
+    val detektVersion = catalog.findVersion("detekt")
+      .orElseThrow { IllegalStateException("Detekt version missing from catalog") }
+      .requiredVersion
+    add("detektPlugins", "io.gitlab.arturbosch.detekt:detekt-formatting:$detektVersion")
   }
 }
 

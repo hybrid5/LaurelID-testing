@@ -18,9 +18,6 @@ import javax.inject.Singleton
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.bouncycastle.crypto.hpke.HPKE
-import org.bouncycastle.crypto.hpke.HPKE.AEAD_AES_GCM_256
-import org.bouncycastle.crypto.hpke.HPKE.KDF_HKDF_SHA256
-import org.bouncycastle.crypto.hpke.HPKE.KEM_X25519_HKDF_SHA256
 import org.bouncycastle.crypto.params.AsymmetricKeyParameter
 import org.bouncycastle.crypto.params.X25519PrivateKeyParameters
 
@@ -132,7 +129,7 @@ class AndroidHpkeKeyProvider @Inject constructor() : HpkeKeyProvider {
     }
 
     private fun generate(alias: String): KeyPair {
-        val generator = KeyPairGenerator.getInstance(KeyProperties.KEY_ALGORITHM_XDH, ANDROID_KEYSTORE)
+        val generator = KeyPairGenerator.getInstance("XDH", ANDROID_KEYSTORE)
         val builder = KeyGenParameterSpec.Builder(
             alias,
             KeyProperties.PURPOSE_AGREE_KEY or KeyProperties.PURPOSE_DECRYPT,
@@ -176,7 +173,11 @@ class BouncyCastleHpkeEngine @Inject constructor(
     private val config: HpkeConfig = HpkeConfig.default(),
 ) : HpkeEngine {
 
-    private val hpke = HPKE.create(KEM_X25519_HKDF_SHA256, KDF_HKDF_SHA256, AEAD_AES_GCM_256)
+    private val hpke = HPKE.create(
+        HPKE.KEM_X25519_HKDF_SHA256,
+        HPKE.KDF_HKDF_SHA256,
+        HPKE.AEAD_AES_GCM_256,
+    )
 
     private val initLock = Mutex()
     private var initialised = false

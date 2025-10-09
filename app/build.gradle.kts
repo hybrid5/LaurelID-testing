@@ -172,10 +172,11 @@ dependencies {
   implementation(libs.okhttp.core)
   implementation(libs.okhttp.logging)
 
-  implementation(libs.cbor)
   implementation(libs.cose)
+  implementation(libs.cbor)
   implementation(libs.bouncycastle.bcprov)
   implementation(libs.bouncycastle.bcpkix)
+  implementation(libs.bouncycastle.bcutil)
 
   // 🔁 Switched to Maven Central artifact (no custom repo required)
   implementation(libs.libsignal.android)

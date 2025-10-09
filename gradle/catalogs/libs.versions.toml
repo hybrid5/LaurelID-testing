@@ -23,7 +23,7 @@ hilt = "2.51.1"
 room = "2.6.1"
 
 bouncycastle = "1.78.1"
-cbor = "4.5.6"
+cbor = "4.5.4"
 cose = "1.1.0"
 kotlinx-coroutines = "1.8.1"
 
@@ -92,6 +92,7 @@ room-compiler = { module = "androidx.room:room-compiler", version.ref = "room" }
 
 bouncycastle-bcprov = { module = "org.bouncycastle:bcprov-jdk18on", version.ref = "bouncycastle" }
 bouncycastle-bcpkix = { module = "org.bouncycastle:bcpkix-jdk18on", version.ref = "bouncycastle" }
+bouncycastle-bcutil = { module = "org.bouncycastle:bcutil-jdk18on", version.ref = "bouncycastle" }
 cbor = { module = "com.upokecenter:cbor", version.ref = "cbor" }
 cose = { module = "com.augustcellars.cose:cose-java", version.ref = "cose" }
 

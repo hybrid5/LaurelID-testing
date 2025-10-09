@@ -7,6 +7,11 @@
     android:layout_height="match_parent"
     android:background="@drawable/bg_app_gradient">
 
+    <androidx.camera.view.PreviewView
+        android:id="@+id/previewView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"/>
+
     <TextView
         android:id="@+id/scannerStatus"
         android:layout_width="0dp"

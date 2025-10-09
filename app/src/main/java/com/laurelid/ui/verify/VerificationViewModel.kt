@@ -2,10 +2,10 @@ package com.laurelid.ui.verify
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.laurelid.verifier.core.VerificationCoordinator
-import com.laurelid.verifier.core.VerifierState
-import com.laurelid.verifier.core.VerificationResult
-import com.laurelid.verifier.transport.QrEngagementTransport
+import com.laurelid.auth.deviceengagement.TransportType
+import com.laurelid.auth.session.SessionManager
+import com.laurelid.auth.session.SessionManager.VerificationResult
+import com.laurelid.auth.session.WebEngagementTransport
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.Job
@@ -17,8 +17,8 @@ import kotlinx.coroutines.launch
 
 @HiltViewModel
 class VerificationViewModel @Inject constructor(
-    private val coordinator: VerificationCoordinator,
-    private val qrTransport: QrEngagementTransport,
+    private val sessionManager: SessionManager,
+    private val webTransport: WebEngagementTransport,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(VerificationUiState())
@@ -28,7 +28,7 @@ class VerificationViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            qrTransport.qrCodes().collectLatest { qrState ->
+            webTransport.qrCodes().collectLatest { qrState ->
                 updateState { it.copy(qrCode = qrState?.bitmap) }
             }
         }
@@ -45,20 +45,22 @@ class VerificationViewModel @Inject constructor(
 
     fun restartSession() {
         viewModelScope.launch {
-            val state = coordinator.begin(DEFAULT_ELEMENTS)
-            when (state) {
-                is VerifierState.AwaitingResponse -> updateState {
-                    it.copy(stage = VerificationUiState.Stage.WAITING, errorMessage = null, result = null)
+            sessionManager.cancel()
+            runCatching { sessionManager.createSession(TransportType.WEB) }
+                .onSuccess {
+                    updateState {
+                        it.copy(stage = VerificationUiState.Stage.WAITING, errorMessage = null, result = null)
+                    }
                 }
-                is VerifierState.Failed -> updateState {
-                    it.copy(
-                        stage = VerificationUiState.Stage.RESULT,
-                        errorMessage = state.reason,
-                        result = null,
-                    )
+                .onFailure { error ->
+                    updateState {
+                        it.copy(
+                            stage = VerificationUiState.Stage.RESULT,
+                            errorMessage = error.message,
+                            result = null,
+                        )
+                    }
                 }
-                else -> Unit
-            }
         }
     }
 
@@ -86,10 +88,10 @@ class VerificationViewModel @Inject constructor(
     override fun onCleared() {
         super.onCleared()
         autoResetJob?.cancel()
+        viewModelScope.launch { sessionManager.cancel() }
     }
 
     companion object {
-        private val DEFAULT_ELEMENTS = listOf("age_over_21", "given_name", "family_name", "portrait")
         private const val AUTO_RESET_DELAY_MS = 15_000L
     }
 }

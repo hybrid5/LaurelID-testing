@@ -10,7 +10,7 @@ import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.laurelid.databinding.ActivityVerifyBinding
-import com.laurelid.verifier.transport.NfcEngagementTransport
+import com.laurelid.auth.session.NfcEngagementTransport
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
 import kotlinx.coroutines.flow.collectLatest

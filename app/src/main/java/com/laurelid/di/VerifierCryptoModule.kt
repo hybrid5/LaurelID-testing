@@ -2,15 +2,15 @@ package com.laurelid.di
 
 import android.content.Context
 import android.nfc.NfcAdapter
-import com.laurelid.verifier.crypto.CoseVerifier
-import com.laurelid.verifier.crypto.CoseVerifierImpl
-import com.laurelid.verifier.crypto.HpkeEngine
-import com.laurelid.verifier.crypto.HpkeEngineImpl
-import com.laurelid.verifier.crypto.HpkeKeyProvider
-import com.laurelid.verifier.crypto.AndroidHpkeKeyProvider
-import com.laurelid.verifier.trust.TrustStore
-import com.laurelid.verifier.trust.TrustStoreImpl
-import com.laurelid.verifier.transport.NfcAdapterProvider
+import com.laurelid.auth.cose.CoseVerifier
+import com.laurelid.auth.cose.DefaultCoseVerifier
+import com.laurelid.auth.crypto.AndroidHpkeKeyProvider
+import com.laurelid.auth.crypto.BouncyCastleHpkeEngine
+import com.laurelid.auth.crypto.HpkeEngine
+import com.laurelid.auth.crypto.HpkeKeyProvider
+import com.laurelid.auth.trust.ResourceTrustStore
+import com.laurelid.auth.trust.TrustStore
+import com.laurelid.auth.session.NfcAdapterProvider
 import dagger.Binds
 import dagger.Module
 import dagger.Provides
@@ -25,15 +25,15 @@ abstract class VerifierCryptoModule {
 
     @Binds
     @Singleton
-    abstract fun bindHpkeEngine(impl: HpkeEngineImpl): HpkeEngine
+    abstract fun bindHpkeEngine(impl: BouncyCastleHpkeEngine): HpkeEngine
 
     @Binds
     @Singleton
-    abstract fun bindCoseVerifier(impl: CoseVerifierImpl): CoseVerifier
+    abstract fun bindCoseVerifier(impl: DefaultCoseVerifier): CoseVerifier
 
     @Binds
     @Singleton
-    abstract fun bindTrustStore(impl: TrustStoreImpl): TrustStore
+    abstract fun bindTrustStore(impl: ResourceTrustStore): TrustStore
 
     @Binds
     @Singleton

@@ -82,4 +82,13 @@
     <string name="verify_portrait">Verified portrait</string>
     <string name="verify_age_over_21">21+ Verified</string>
     <string name="verify_result_error">Verification failed. Please retry.</string>
+    <string name="kiosk_idle">Ready for verification</string>
+    <string name="kiosk_engaging">Preparing session…</string>
+    <string name="kiosk_waiting">Awaiting wallet approval</string>
+    <string name="kiosk_decrypting">Decrypting credential…</string>
+    <string name="kiosk_verified">Credential verified</string>
+    <string name="kiosk_failed">Verification failed</string>
+    <string name="kiosk_qr_content_desc">Scan this QR code with your wallet</string>
+    <string name="kiosk_retry">Retry</string>
+    <string name="kiosk_reset">Reset</string>
 </resources>

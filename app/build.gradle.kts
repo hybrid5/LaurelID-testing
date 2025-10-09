@@ -2,12 +2,12 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
-  id("com.android.application")
-  id("org.jetbrains.kotlin.android")
-  id("org.jetbrains.kotlin.plugin.parcelize")
-  id("com.google.devtools.ksp")           // Room on KSP
-  id("org.jetbrains.kotlin.kapt")         // Hilt on KAPT
-  id("com.google.dagger.hilt.android")
+  alias(libs.plugins.android.application)
+  alias(libs.plugins.kotlin.android)
+  alias(libs.plugins.kotlin.parcelize)
+  alias(libs.plugins.ksp)
+  alias(libs.plugins.kotlin.kapt)
+  alias(libs.plugins.hilt.android.plugin)
 }
 
 android {
@@ -58,6 +58,11 @@ android {
   buildFeatures {
     viewBinding = true
     buildConfig = true
+  }
+
+  testOptions {
+    unitTests.isIncludeAndroidResources = true
+    unitTests.isReturnDefaultValues = true
   }
 
   signingConfigs {
@@ -119,67 +124,49 @@ kapt { correctErrorTypes = true }
 ksp { arg("room.generateKotlin", "true") }
 
 dependencies {
-  // Kotlin BOM (align with plugin 2.0.21) + coroutines BOM
   implementation(platform("org.jetbrains.kotlin:kotlin-bom:2.0.21"))
-  implementation(platform("org.jetbrains.kotlinx:kotlinx-coroutines-bom:1.10.2"))
-  implementation(kotlin("stdlib"))
-  implementation(kotlin("reflect"))
 
+  implementation(libs.androidx.activity.ktx)
   implementation(libs.androidx.core.ktx)
   implementation(libs.androidx.appcompat)
+  implementation(libs.androidx.fragment.ktx)
   implementation(libs.material)
+  implementation(libs.bundles.androidx.lifecycle)
 
-  // viewModels() and lifecycle ViewModel
-  implementation("androidx.activity:activity-ktx:1.9.3")
-  implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.9.4")
+  implementation(libs.androidx.security.crypto)
+  implementation(libs.kotlinx.coroutines.core)
+  implementation(libs.kotlinx.coroutines.play.services)
 
-  // ZXing (if used elsewhere)
   implementation(libs.zxing.core)
+  implementation(libs.bundles.camera)
 
-  // CameraX
-  implementation(libs.androidx.camera.core)
-  implementation(libs.androidx.camera.camera2)
-  implementation(libs.androidx.camera.lifecycle)
-  implementation(libs.androidx.camera.view)
-
-  // Room via KSP
   implementation(libs.room.runtime)
   implementation(libs.room.ktx)
   ksp(libs.room.compiler)
 
-  // Networking
   implementation(libs.retrofit.core)
   implementation(libs.retrofit.moshi)
   implementation(libs.okhttp.core)
   implementation(libs.okhttp.logging)
 
-  implementation(libs.androidx.security.crypto)
-  implementation(libs.androidx.lifecycle.runtime.ktx)
-
-  // CBOR / COSE
   implementation(libs.cbor)
   implementation(libs.cose)
   implementation(libs.bouncycastle.bcprov)
   implementation(libs.bouncycastle.bcpkix)
+  implementation(libs.hpke.android)
 
-  // Hilt
+  implementation(libs.play.integrity)
+  implementation(libs.mlkit.barcode)
+
   implementation(libs.hilt.android)
   kapt(libs.hilt.compiler)
 
-  // ML Kit + coroutines bridge
-  implementation("com.google.mlkit:barcode-scanning:17.3.0")
-  implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.10.2")
-  implementation("com.google.android.gms:play-services-tasks:18.4.0")
-
-  // Play Integrity (use your version catalog)
-  implementation(libs.play.integrity)
-
-  // COSE/CBOR (explicit — also in versions catalog above)
-  implementation("com.augustcellars.cose:cose-java:1.1.0")
-  implementation("com.upokecenter:cbor:4.5.6")
-
-  // HPKE (Signal) — Android target; requires Signal repo in settings.gradle.kts
-  implementation("org.signal:hpke-android:0.0.4")
-
+  testImplementation(kotlin("test"))
+  testImplementation(libs.junit)
+  testImplementation(libs.truth)
+  testImplementation(libs.mockk)
   testImplementation(libs.kotlinx.coroutines.test)
+  testImplementation(libs.robolectric)
+  testImplementation(libs.arch.core.testing)
+  testImplementation(libs.androidx.test.core)
 }

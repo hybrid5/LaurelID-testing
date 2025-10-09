@@ -25,6 +25,7 @@ class VerificationViewModel @Inject constructor(
     val state: StateFlow<VerificationUiState> = _state
 
     private var autoResetJob: Job? = null
+    private var activeSession: SessionManager.ActiveSession? = null
 
     init {
         viewModelScope.launch {
@@ -36,18 +37,40 @@ class VerificationViewModel @Inject constructor(
     }
 
     fun onEncryptedPayload(payload: ByteArray) {
+        val session = activeSession
+        if (session == null) {
+            updateState {
+                it.copy(
+                    stage = VerificationUiState.Stage.RESULT,
+                    result = null,
+                    errorMessage = "No active session",
+                )
+            }
+            return
+        }
         viewModelScope.launch {
             updateState { it.copy(stage = VerificationUiState.Stage.PENDING) }
-            val result = coordinator.processResponse(payload)
+            val result = runCatching { sessionManager.decryptAndVerify(session, payload) }
+                .getOrElse { error ->
+                    VerificationResult(
+                        isSuccess = false,
+                        minimalClaims = emptyMap(),
+                        portrait = null,
+                        audit = listOfNotNull(error.message),
+                    )
+                }
             handleResult(result)
         }
     }
 
     fun restartSession() {
         viewModelScope.launch {
+            autoResetJob?.cancel()
             sessionManager.cancel()
+            activeSession = null
             runCatching { sessionManager.createSession(TransportType.WEB) }
                 .onSuccess {
+                    activeSession = it
                     updateState {
                         it.copy(stage = VerificationUiState.Stage.WAITING, errorMessage = null, result = null)
                     }
@@ -65,6 +88,7 @@ class VerificationViewModel @Inject constructor(
     }
 
     private fun handleResult(result: VerificationResult) {
+        activeSession = null
         updateState {
             it.copy(
                 stage = VerificationUiState.Stage.RESULT,
@@ -75,7 +99,8 @@ class VerificationViewModel @Inject constructor(
         autoResetJob?.cancel()
         autoResetJob = viewModelScope.launch {
             delay(AUTO_RESET_DELAY_MS)
-            coordinator.cancel()
+            sessionManager.cancel()
+            activeSession = null
             updateState { VerificationUiState() }
             restartSession()
         }
@@ -88,7 +113,10 @@ class VerificationViewModel @Inject constructor(
     override fun onCleared() {
         super.onCleared()
         autoResetJob?.cancel()
-        viewModelScope.launch { sessionManager.cancel() }
+        viewModelScope.launch {
+            sessionManager.cancel()
+            activeSession = null
+        }
     }
 
     companion object {

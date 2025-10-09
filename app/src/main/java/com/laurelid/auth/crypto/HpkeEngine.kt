@@ -11,12 +11,16 @@ import java.security.interfaces.XECPrivateKey
 import java.security.interfaces.XECPublicKey
 import java.security.spec.NamedParameterSpec
 import java.time.Instant
+import java.util.Optional
 import java.util.concurrent.atomic.AtomicReference
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.bouncycastle.crypto.hpke.HPKE
+import org.bouncycastle.crypto.hpke.HPKE.AEAD_AES_GCM_256
+import org.bouncycastle.crypto.hpke.HPKE.KDF_HKDF_SHA256
+import org.bouncycastle.crypto.hpke.HPKE.KEM_X25519_HKDF_SHA256
 import org.bouncycastle.crypto.params.AsymmetricKeyParameter
 import org.bouncycastle.crypto.params.X25519PrivateKeyParameters
 
@@ -106,7 +110,7 @@ class AndroidHpkeKeyProvider @Inject constructor() : HpkeKeyProvider {
         val keyPair = cachedKeyPair.get() ?: error("HPKE key has not been initialised")
         val privateKey = keyPair.private as? XECPrivateKey
             ?: error("HPKE private key must be X25519")
-        val scalar = privateKey.scalar ?: error("Android Keystore did not expose scalar")
+        val scalar = extractScalar(privateKey)
         return X25519PrivateKeyParameters(scalar, 0)
     }
 
@@ -172,6 +176,8 @@ class BouncyCastleHpkeEngine @Inject constructor(
     private val config: HpkeConfig = HpkeConfig.default(),
 ) : HpkeEngine {
 
+    private val hpke = HPKE.create(KEM_X25519_HKDF_SHA256, KDF_HKDF_SHA256, AEAD_AES_GCM_256)
+
     private val initLock = Mutex()
     private var initialised = false
 
@@ -187,7 +193,6 @@ class BouncyCastleHpkeEngine @Inject constructor(
     override fun decrypt(cipher: ByteArray, aad: ByteArray): SecureBytes {
         check(initialised) { "HPKE recipient not initialised" }
         val envelope = HpkeEnvelope.parse(cipher)
-        val hpke = HPKE.create(config.kem, config.kdf, config.aead)
         val recipient = hpke.createRecipientContext(
             keyProvider.getPrivateKeyParameters(),
             envelope.encapsulatedKey,
@@ -199,18 +204,12 @@ class BouncyCastleHpkeEngine @Inject constructor(
     }
 }
 
-/** Encapsulates HPKE configuration values (KEM/KDF/AEAD). */
+/** Encapsulates HPKE context information strings. */
 data class HpkeConfig(
-    val kem: Int,
-    val kdf: Int,
-    val aead: Int,
     val info: ByteArray = ByteArray(0),
 ) {
     companion object {
         fun default(): HpkeConfig = HpkeConfig(
-            kem = HPKE.KEM_X25519_HKDF_SHA256,
-            kdf = HPKE.KDF_HKDF_SHA256,
-            aead = HPKE.AEAD_AES_GCM_256,
             info = "LaurelID-mDL".toByteArray(),
         )
     }
@@ -253,7 +252,7 @@ class InMemoryHpkeKeyProvider(private val keyPair: KeyPair) : HpkeKeyProvider {
     override fun getPublicKeyBytes(): ByteArray = (keyPair.public as XECPublicKey).u.toByteArray()
     override fun getPrivateKeyParameters(): AsymmetricKeyParameter {
         val privateKey = keyPair.private as XECPrivateKey
-        val scalar = privateKey.scalar ?: error("Missing scalar")
+        val scalar = extractScalar(privateKey)
         return X25519PrivateKeyParameters(scalar, 0)
     }
     override fun installDebugKey(alias: String, privateKey: ByteArray) = Unit
@@ -265,13 +264,19 @@ data class HpkeKeyMetadata(
     val createdAt: Instant,
 )
 
-/** Minimal secure byte holder to avoid accidental logging/leaks. */
-class SecureBytes private constructor(private val bytes: ByteArray) : AutoCloseable {
-    fun copy(): ByteArray = bytes.copyOf()
-    override fun close() {
-        for (i in bytes.indices) bytes[i] = 0
-    }
-    companion object {
-        fun wrap(b: ByteArray) = SecureBytes(b)
+/** Extracts the raw X25519 scalar from an XEC private key across API levels. */
+private fun extractScalar(privateKey: XECPrivateKey): ByteArray {
+    val scalarValue: Any? = privateKey.scalar
+    return when (scalarValue) {
+        is ByteArray -> scalarValue
+        is Optional<*> -> {
+            val bytes = scalarValue.orElseThrow {
+                IllegalStateException("Missing scalar in XECPrivateKey")
+            }
+            bytes as? ByteArray
+                ?: throw IllegalStateException("Unexpected scalar representation: ${bytes?.javaClass?.name}")
+        }
+        null -> throw IllegalStateException("Missing scalar in XECPrivateKey")
+        else -> throw IllegalStateException("Unexpected scalar representation: ${scalarValue.javaClass.name}")
     }
 }

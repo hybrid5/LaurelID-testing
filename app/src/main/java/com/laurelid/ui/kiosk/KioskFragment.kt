@@ -25,21 +25,20 @@ import kotlinx.coroutines.launch
 class KioskFragment : Fragment() {
 
     private val viewModel: KioskViewModel by viewModels()
-    private var binding: FragmentKioskBinding? = null
+    private var _binding: FragmentKioskBinding? = null
+    private val binding get() = _binding!!
 
     override fun onCreateView(
         inflater: LayoutInflater,
         container: ViewGroup?,
         savedInstanceState: Bundle?,
     ): View {
-        val inflate = FragmentKioskBinding.inflate(inflater, container, false)
-        binding = inflate
-        return inflate.root
+        _binding = FragmentKioskBinding.inflate(inflater, container, false)
+        return binding.root
     }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-        val binding = binding ?: return
         binding.retryButton.setOnClickListener { viewModel.startSession() }
         binding.resetButton.setOnClickListener { viewModel.reset() }
         lifecycleScope.launch {
@@ -52,30 +51,30 @@ class KioskFragment : Fragment() {
 
     override fun onDestroyView() {
         super.onDestroyView()
-        binding = null
+        _binding = null
     }
 
     private fun render(state: KioskState) {
-        val binding = binding ?: return
+        val binding = _binding ?: return
         when (state) {
             KioskState.Idle -> {
                 binding.statusText.setText(R.string.kiosk_idle)
                 binding.progressIndicator.isGone = true
-                binding.qrImage.setImageBitmap(null)
-                binding.sessionIdText.text = ""
-                binding.resultContainer.isGone = true
+                binding.qrPanel.qrImage.setImageBitmap(null)
+                binding.qrPanel.sessionIdText.text = ""
+                binding.resultContainer.root.isGone = true
             }
             KioskState.Engaging -> {
                 binding.statusText.setText(R.string.kiosk_engaging)
                 binding.progressIndicator.isVisible = true
-                binding.resultContainer.isGone = true
+                binding.resultContainer.root.isGone = true
             }
             is KioskState.WaitingApproval -> {
                 binding.statusText.setText(R.string.kiosk_waiting)
                 binding.progressIndicator.isGone = true
-                binding.qrImage.setImageBitmap(state.qrBitmap)
-                binding.sessionIdText.text = state.sessionId
-                binding.resultContainer.isGone = true
+                binding.qrPanel.qrImage.setImageBitmap(state.qrBitmap)
+                binding.qrPanel.sessionIdText.text = state.sessionId
+                binding.resultContainer.root.isGone = true
             }
             KioskState.Decrypting -> {
                 binding.statusText.setText(R.string.kiosk_decrypting)
@@ -84,20 +83,20 @@ class KioskFragment : Fragment() {
             is KioskState.Verified -> {
                 binding.statusText.setText(R.string.kiosk_verified)
                 binding.progressIndicator.isGone = true
-                binding.resultContainer.isVisible = true
-                binding.resultText.text = buildResultSummary(state.result)
+                binding.resultContainer.root.isVisible = true
+                binding.resultContainer.resultText.text = buildResultSummary(state.result)
             }
             is KioskState.Denied -> {
                 binding.statusText.setText(R.string.kiosk_failed)
                 binding.progressIndicator.isGone = true
-                binding.resultContainer.isVisible = true
-                binding.resultText.text = state.reason
+                binding.resultContainer.root.isVisible = true
+                binding.resultContainer.resultText.text = state.reason
             }
             is KioskState.Failed -> {
                 binding.statusText.setText(R.string.kiosk_failed)
                 binding.progressIndicator.isGone = true
-                binding.resultContainer.isVisible = true
-                binding.resultText.text = state.reason
+                binding.resultContainer.root.isVisible = true
+                binding.resultContainer.resultText.text = state.reason
             }
         }
     }

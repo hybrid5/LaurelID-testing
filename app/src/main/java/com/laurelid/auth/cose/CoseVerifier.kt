@@ -1,12 +1,11 @@
 package com.laurelid.auth.cose
 
-import COSE.HeaderKeys
-import COSE.Message
-import COSE.OneKey
-import COSE.Sign1Message
+import com.augustcellars.cbor.CBORObject
+import com.augustcellars.cose.HeaderKeys
+import com.augustcellars.cose.OneKey
+import com.augustcellars.cose.Sign1Message
 import com.laurelid.auth.session.VerificationError
 import com.laurelid.auth.session.VerifierFeatureFlags
-import com.upokecenter.cbor.CBORObject
 import java.io.ByteArrayInputStream
 import java.security.MessageDigest
 import java.security.cert.CertPathValidator
@@ -44,9 +43,11 @@ class DefaultCoseVerifier @Inject constructor() : CoseVerifier {
         trustAnchors: List<X509Certificate>,
         at: Instant,
     ): VerifiedIssuer {
-        val decoded = Message.DecodeFromBytes(payload)
-        val message = (decoded as? Sign1Message)
-            ?: throw VerificationError.IssuerUntrusted("MSO is not COSE_Sign1")
+        val message = try {
+            Sign1Message.DecodeFromBytes(payload)
+        } catch (throwable: Throwable) {
+            throw VerificationError.IssuerUntrusted("MSO is not COSE_Sign1", throwable)
+        }
 
         val certificates = extractCertificates(message)
         if (certificates.isEmpty()) {
@@ -66,7 +67,7 @@ class DefaultCoseVerifier @Inject constructor() : CoseVerifier {
             throw VerificationError.IssuerUntrusted("Issuer certificate not yet valid", notYetValid)
         }
 
-        if (!message.validate(OneKey(signer.publicKey, null))) {
+        if (!message.Validate(OneKey(signer.publicKey, null))) {
             throw VerificationError.IssuerUntrusted("Issuer signature validation failed")
         }
 
@@ -82,12 +83,15 @@ class DefaultCoseVerifier @Inject constructor() : CoseVerifier {
         deviceChain: List<X509Certificate>,
     ): Boolean {
         if (deviceChain.isEmpty()) return false
-        val decoded = Message.DecodeFromBytes(deviceSignature)
-        val message = (decoded as? Sign1Message) ?: return false
+        val message = try {
+            Sign1Message.DecodeFromBytes(deviceSignature)
+        } catch (_: Throwable) {
+            return false
+        }
         val aad = MessageDigest.getInstance("SHA-256").digest(transcript)
-        message.setExternal(aad)
+        message.SetExternal(aad)
         val publicKey = deviceChain.first().publicKey
-        return message.validate(OneKey(publicKey, null))
+        return message.Validate(OneKey(publicKey, null))
     }
 
     override fun extractAttributes(issuer: VerifiedIssuer, requested: Collection<String>): Map<String, Any?> {
@@ -101,21 +105,19 @@ class DefaultCoseVerifier @Inject constructor() : CoseVerifier {
     }
 
     private fun extractCertificates(message: Sign1Message): List<X509Certificate> {
-        val header = message.protectedAttributes
-        // Try known label, then raw label (33) as fallback to handle older/newer COSE libs.
-        val x5ChainKey = try { HeaderKeys.X5CHAIN.AsCBOR() } catch (_: Throwable) { null }
-        val chain = when {
-            x5ChainKey != null && header.ContainsKey(x5ChainKey) -> header[x5ChainKey]
-            header.ContainsKey(CBORObject.FromObject(33)) -> header[CBORObject.FromObject(33)]
-            else -> return emptyList()
-        }
+        val x5chain = message.protectedAttributes[HeaderKeys.X5Chain]
+            ?: message.unprotectedAttributes[HeaderKeys.X5Chain]
+            ?: return emptyList()
+
+        require(x5chain.isArray) { "Missing x5c chain" }
+
         val cf = CertificateFactory.getInstance("X.509")
-        val certificates = ArrayList<X509Certificate>()
-        for (index in 0 until chain.size()) {
-            val der = chain[index].GetByteString()
-            certificates += cf.generateCertificate(ByteArrayInputStream(der)) as X509Certificate
+        return buildList {
+            for (index in 0 until x5chain.size()) {
+                val der = x5chain[index].GetByteString()
+                add(cf.generateCertificate(ByteArrayInputStream(der)) as X509Certificate)
+            }
         }
-        return certificates
     }
 
     private fun validateChain(

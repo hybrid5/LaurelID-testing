@@ -89,6 +89,7 @@
     <string name="kiosk_verified">Credential verified</string>
     <string name="kiosk_failed">Verification failed</string>
     <string name="kiosk_qr_content_desc">Scan this QR code with your wallet</string>
+    <string name="kiosk_result_icon_desc">Verification outcome icon</string>
     <string name="kiosk_retry">Retry</string>
     <string name="kiosk_reset">Reset</string>
 </resources>

@@ -1,58 +1,77 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
-    android:gravity="center"
-    android:padding="24dp">
+    tools:context=".ui.kiosk.KioskFragment">
 
     <TextView
-        android:id="@+id/status_text"
-        android:layout_width="wrap_content"
+        android:id="@+id/statusText"
+        android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:textAppearance="@style/TextAppearance.AppCompat.Headline"
-        android:text="@string/kiosk_idle" />
+        android:layout_marginStart="24dp"
+        android:layout_marginEnd="24dp"
+        android:textAppearance="@style/TextAppearance.MaterialComponents.Headline5"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent"
+        tools:text="Waiting for wallet" />
+
+    <include
+        android:id="@+id/qrPanel"
+        layout="@layout/view_qr_panel"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        app:layout_constraintBottom_toTopOf="@+id/resultContainer"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/statusText"
+        app:layout_constraintDimensionRatio="1:1" />
 
     <ProgressBar
-        android:id="@+id/progress_indicator"
-        style="@style/Widget.AppCompat.ProgressBar.Horizontal"
-        android:layout_width="200dp"
-        android:layout_height="wrap_content"
-        android:indeterminate="true"
-        android:visibility="gone"
-        android:layout_marginTop="16dp" />
-
-    <ImageView
-        android:id="@+id/qr_image"
-        android:layout_width="200dp"
-        android:layout_height="200dp"
-        android:layout_marginTop="16dp"
-        android:contentDescription="@string/kiosk_qr_content_desc" />
-
-    <TextView
-        android:id="@+id/result_text"
+        android:id="@+id/progressIndicator"
+        style="@style/Widget.MaterialComponents.ProgressIndicator.Circular.Indeterminate"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginTop="16dp"
-        android:textAppearance="@style/TextAppearance.AppCompat.Body1" />
+        android:visibility="gone"
+        app:layout_constraintBottom_toBottomOf="@id/qrPanel"
+        app:layout_constraintEnd_toEndOf="@id/qrPanel"
+        app:layout_constraintStart_toStartOf="@id/qrPanel"
+        app:layout_constraintTop_toTopOf="@id/qrPanel" />
+
+    <include
+        android:id="@+id/resultContainer"
+        layout="@layout/view_result_banner"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:visibility="gone"
+        app:layout_constraintBottom_toTopOf="@+id/buttonRow"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/qrPanel" />
 
     <LinearLayout
-        android:layout_width="wrap_content"
+        android:id="@+id/buttonRow"
+        android:layout_width="0dp"
         android:layout_height="wrap_content"
+        android:layout_margin="24dp"
+        android:gravity="center"
         android:orientation="horizontal"
-        android:layout_marginTop="24dp">
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent">
 
         <Button
-            android:id="@+id/retry_button"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
+            android:id="@+id/retryButton"
+            style="@style/Widget.MaterialComponents.Button"
+            android:layout_marginEnd="16dp"
             android:text="@string/kiosk_retry" />
 
         <Button
-            android:id="@+id/reset_button"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="@string/kiosk_reset"
-            android:layout_marginStart="16dp" />
+            android:id="@+id/resetButton"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+            android:text="@string/kiosk_reset" />
     </LinearLayout>
-</LinearLayout>
+
+</androidx.constraintlayout.widget.ConstraintLayout>

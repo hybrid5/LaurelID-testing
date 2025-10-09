@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Shown under the status text on the scanner screen -->
+    <string name="scanner_hint_nfc_or_demo">
+        Hold an ID to the NFC reader, or enable Demo Mode in Admin.
+    </string>
+</resources>

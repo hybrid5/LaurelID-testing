@@ -131,6 +131,7 @@ android {
   compileOptions {
     sourceCompatibility = JavaVersion.VERSION_17
     targetCompatibility = JavaVersion.VERSION_17
+    isCoreLibraryDesugaringEnabled = true
   }
 
   kotlinOptions { jvmTarget = "17" }
@@ -175,7 +176,9 @@ dependencies {
   implementation(libs.cose)
   implementation(libs.bouncycastle.bcprov)
   implementation(libs.bouncycastle.bcpkix)
-  implementation(libs.hpke.android)
+
+  // 🔁 Switched to Maven Central artifact (no custom repo required)
+  implementation(libs.libsignal.android)
 
   implementation(libs.play.integrity)
   implementation(libs.mlkit.barcode)
@@ -195,30 +198,33 @@ dependencies {
   androidTestImplementation(libs.androidx.test.ext.junit)
   androidTestImplementation(libs.espresso.core)
   androidTestImplementation(libs.androidx.test.core)
+
+  // Core library desugaring (needed by libsignal-android on minSdk < 26; safe in any case)
+  coreLibraryDesugaring(libs.desugarJdkLibs)
 }
 
 val anchorsDir = file("src/main/assets/trust/iaca")
 
 tasks.register("printAnchors") {
-    group = "trust"
-    description = "Prints bundled IACA trust anchors"
-    doLast {
-        if (!anchorsDir.exists()) {
-            println("No anchors found at ${anchorsDir.absolutePath}")
-            return@doLast
-        }
-        val factory = CertificateFactory.getInstance("X.509")
-        val files = anchorsDir.walkTopDown().filter { it.isFile && it.extension.equals("cer", true) }.toList()
-        if (files.isEmpty()) {
-            println("No anchors found at ${anchorsDir.absolutePath}")
-            return@doLast
-        }
-        println("Found ${files.size} trust anchor(s)")
-        files.sortedBy { it.name }.forEach { file ->
-            file.inputStream().use { input ->
-                val cert = factory.generateCertificate(input) as X509Certificate
-                println("- ${cert.subjectX500Principal.name} (expires ${cert.notAfter})")
-            }
-        }
+  group = "trust"
+  description = "Prints bundled IACA trust anchors"
+  doLast {
+    if (!anchorsDir.exists()) {
+      println("No anchors found at ${anchorsDir.absolutePath}")
+      return@doLast
     }
+    val factory = CertificateFactory.getInstance("X.509")
+    val files = anchorsDir.walkTopDown().filter { it.isFile && it.extension.equals("cer", true) }.toList()
+    if (files.isEmpty()) {
+      println("No anchors found at ${anchorsDir.absolutePath}")
+      return@doLast
+    }
+    println("Found ${files.size} trust anchor(s)")
+    files.sortedBy { it.name }.forEach { file ->
+      file.inputStream().use { input ->
+        val cert = factory.generateCertificate(input) as X509Certificate
+        println("- ${cert.subjectX500Principal.name} (expires ${cert.notAfter})")
+      }
+    }
+  }
 }

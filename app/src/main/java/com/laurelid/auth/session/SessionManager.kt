@@ -1,6 +1,6 @@
 package com.laurelid.auth.session
 
-import com.augustcellars.cbor.CBORObject
+import com.upokecenter.cbor.CBORObject
 import com.laurelid.auth.cose.CoseVerifier
 import com.laurelid.auth.cose.VerifiedIssuer
 import com.laurelid.auth.crypto.HpkeEngine
@@ -108,7 +108,7 @@ class SessionManager @Inject constructor(
             set(CBORObject.FromObject("verifierNonce"), CBORObject.FromObject(session.request.nonce))
             set(CBORObject.FromObject("ts"), CBORObject.FromObject(clock.instant().toEpochMilli()))
         }
-        return map.EncodeToBytes() // Session transcript per ISO/IEC 18013-7. 【ISO18013-7】
+        return map.EncodeToBytes() // ISO/IEC 18013-7 session transcript
     }
 
     fun encodeRequestQr(session: ActiveSession): ByteArray? =
@@ -116,9 +116,7 @@ class SessionManager @Inject constructor(
 
     fun encodeNfcHandover(session: ActiveSession): ByteArray? = session.engagement.peerInfo
 
-    suspend fun cancel() = mutex.withLock {
-        cleanup()
-    }
+    suspend fun cancel() = mutex.withLock { cleanup() }
 
     private suspend fun cleanup() {
         activeSession?.transport?.transport?.stop()
@@ -194,4 +192,3 @@ class SessionManager @Inject constructor(
         private const val TAG = "SessionManager"
     }
 }
-

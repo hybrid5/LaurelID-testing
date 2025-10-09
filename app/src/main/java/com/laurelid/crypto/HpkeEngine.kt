@@ -100,15 +100,16 @@ class AndroidHpkeKeyProvider @Inject constructor() : HpkeKeyProvider {
 
     override fun installDebugKey(alias: String, privateKey: ByteArray) {
         require(privateKey.size == X25519PrivateKeyParameters.KEY_SIZE) { "Invalid X25519 key" }
-        lock.tryLock()?.let { mutexLock ->
-            try {
-                cachedKeyPair.set(null)
-                cachedAlias.set(alias)
-                debugScalar.set(privateKey.copyOf())
-            } finally {
-                mutexLock.unlock()
-            }
-        } ?: throw IllegalStateException("Unable to obtain keystore lock for debug import")
+        if (!lock.tryLock()) {
+            throw IllegalStateException("Unable to obtain keystore lock for debug import")
+        }
+        try {
+            cachedKeyPair.set(null)
+            cachedAlias.set(alias)
+            debugScalar.set(privateKey.copyOf())
+        } finally {
+            lock.unlock()
+        }
     }
 
     private fun generate(alias: String): KeyPair {

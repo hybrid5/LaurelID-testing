@@ -32,7 +32,7 @@ interface HpkeEngine {
     suspend fun initRecipient(keyAlias: String = DEFAULT_KEY_ALIAS)
 
     /** Decrypts an HPKE envelope emitted by the wallet. */
-    fun decrypt(cipher: ByteArray, aad: ByteArray = EMPTY_AAD): ByteArray
+    fun decrypt(cipher: ByteArray, aad: ByteArray = EMPTY_AAD): SecureBytes
 
     companion object {
         const val DEFAULT_KEY_ALIAS = "laurelid_hpke_x25519"
@@ -184,7 +184,7 @@ class BouncyCastleHpkeEngine @Inject constructor(
         }
     }
 
-    override fun decrypt(cipher: ByteArray, aad: ByteArray): ByteArray {
+    override fun decrypt(cipher: ByteArray, aad: ByteArray): SecureBytes {
         check(initialised) { "HPKE recipient not initialised" }
         val envelope = HpkeEnvelope.parse(cipher)
         val hpke = HPKE.create(config.kem, config.kdf, config.aead)
@@ -194,7 +194,8 @@ class BouncyCastleHpkeEngine @Inject constructor(
             config.info,
             aad,
         )
-        return recipient.open(envelope.ciphertext, aad)
+        val plaintext = recipient.open(envelope.ciphertext, aad)
+        return SecureBytes.wrap(plaintext)
     }
 }
 

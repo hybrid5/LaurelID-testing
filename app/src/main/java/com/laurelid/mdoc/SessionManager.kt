@@ -69,14 +69,16 @@ class SessionManager @Inject constructor(
 
     suspend fun processCiphertext(session: ActiveSession, ciphertext: ByteArray): VerificationResult = mutex.withLock {
         check(activeSession?.id == session.id) { "Session is no longer active" }
-        val plaintext = hpkeEngine.decrypt(ciphertext, session.transcript)
-        val message = TransportMessage(
-            payload = plaintext,
-            format = session.expectedFormat,
-            transcript = session.transcript,
-            engagementNonce = session.request.nonce,
-        )
-        val result = verifier.verify(message)
+        val result = hpkeEngine.decrypt(ciphertext, session.transcript).use { plaintext ->
+            val payload = plaintext.copy()
+            val message = TransportMessage(
+                payload = payload,
+                format = session.expectedFormat,
+                transcript = session.transcript,
+                engagementNonce = session.request.nonce,
+            )
+            verifier.verify(message)
+        }
         if (result.isSuccess) {
             cleanup()
         }

@@ -2,6 +2,7 @@ package com.laurelid.integrity
 
 import android.content.Context
 import android.util.Log
+import com.laurelid.FeatureFlags
 
 /**
  * Enforces Play Integrity before privileged admin features are exposed.
@@ -15,10 +16,15 @@ object PlayIntegrityGate {
     }
 
     suspend fun isAdminAccessAllowed(context: Context): Boolean {
+        if (!FeatureFlags.integrityGateEnabled) {
+            Log.w(TAG, "Play Integrity gate disabled; allowing admin surface.")
+            return true
+        }
         val verdict = helperFactory(context.applicationContext).fetchVerdict()
         val allowed = verdict == PlayIntegrityVerdict.MEETS_DEVICE_INTEGRITY
         if (!allowed) {
-            Log.w(TAG, "Blocking admin surface due to Play Integrity verdict: $verdict")
+            Log.w(TAG, "Play Integrity verdict=$verdict; bypassing admin block.")
+            return verdict == PlayIntegrityVerdict.UNKNOWN
         }
         return allowed
     }

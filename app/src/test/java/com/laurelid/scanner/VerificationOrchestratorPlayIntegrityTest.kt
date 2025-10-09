@@ -2,6 +2,7 @@ package com.laurelid.scanner
 
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
+import com.laurelid.FeatureFlags
 import com.laurelid.auth.ParsedMdoc
 import com.laurelid.auth.VerifierService
 import com.laurelid.auth.WalletVerifier
@@ -56,6 +57,7 @@ class VerificationOrchestratorPlayIntegrityTest {
     @BeforeTest
     fun setUp() {
         PlayIntegrityGate.resetForTesting()
+        FeatureFlags.integrityGateEnabled = true
         verificationDao = FakeVerificationDao()
         verifierService = FakeVerifierService()
         logManager = FakeLogManager(context)
@@ -72,6 +74,7 @@ class VerificationOrchestratorPlayIntegrityTest {
     @AfterTest
     fun tearDown() {
         PlayIntegrityGate.resetForTesting()
+        FeatureFlags.integrityGateEnabled = false
     }
 
     @Test

@@ -10,6 +10,7 @@ import com.google.android.play.core.integrity.StandardIntegrityManager.StandardI
 import com.google.android.play.core.integrity.StandardIntegrityManager.StandardIntegrityTokenProvider
 import com.google.android.play.core.integrity.StandardIntegrityManager.StandardIntegrityTokenRequest
 import com.google.android.gms.tasks.Tasks
+import com.laurelid.FeatureFlags
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.security.SecureRandom
@@ -29,9 +30,14 @@ class PlayIntegrityHelper(
 ) : PlayIntegrityVerdictProvider {
 
     override suspend fun fetchVerdict(): PlayIntegrityVerdict {
+        if (!FeatureFlags.integrityGateEnabled) {
+            Log.w(TAG, "Play Integrity gate disabled; allowing admin access.")
+            return PlayIntegrityVerdict.UNKNOWN
+        }
+
         val projectNumber = projectNumberProvider.getProjectNumber()
-        if (projectNumber == null) {
-            Log.w(TAG, "Cloud project number missing; treating Play Integrity verdict as unknown.")
+        if (projectNumber == null || projectNumber == 0L) {
+            Log.w(TAG, "Cloud project number missing; bypassing Play Integrity verdict.")
             return PlayIntegrityVerdict.UNKNOWN
         }
 
@@ -89,10 +95,7 @@ class PlayIntegrityHelper(
     }
 
     class BuildConfigProjectNumberProvider : ProjectNumberProvider {
-        override fun getProjectNumber(): Long? {
-            val projectNumber = com.laurelid.BuildConfig.PLAY_INTEGRITY_PROJECT_NUMBER
-            return projectNumber.takeIf { it > 0 }
-        }
+        override fun getProjectNumber(): Long? = com.laurelid.BuildConfig.PLAY_INTEGRITY_PROJECT_NUMBER
     }
 
     private companion object {

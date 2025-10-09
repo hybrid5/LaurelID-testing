@@ -5,14 +5,17 @@ import COSE.CBORObject
 import COSE.HeaderKeys
 import COSE.OneKey
 import COSE.Sign1Message
+import com.laurelid.auth.session.VerificationError
 import java.math.BigInteger
 import java.security.KeyPair
 import java.security.KeyPairGenerator
 import java.security.Security
 import java.security.cert.X509Certificate
 import java.util.Date
+import java.time.Instant
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import kotlin.test.assertFailsWith
 import org.bouncycastle.asn1.x500.X500Name
 import org.bouncycastle.cert.X509CertificateHolder
 import org.bouncycastle.cert.X509v3CertificateBuilder
@@ -38,11 +41,27 @@ class CoseVerifierTest {
         message.sign(OneKey(keyPair.public, keyPair.private))
 
         val verifier = DefaultCoseVerifier()
-        val verified = verifier.verifyIssuer(message.EncodeToBytes(), listOf(certificate))
+        val verified = verifier.verifyIssuer(message.EncodeToBytes(), listOf(certificate), Instant.now())
         assertTrue(verified.claims["age_over_21"] as Boolean)
 
         val minimal = verifier.extractAttributes(verified, listOf("age_over_21"))
         assertEquals(true, minimal["age_over_21"])
+    }
+
+    @Test
+    fun failsOnEmptyAnchors() {
+        val keyPair = generateKeyPair()
+        val certificate = selfSignedCertificate(keyPair)
+        val message = Sign1Message()
+        message.addAttribute(HeaderKeys.Algorithm, AlgorithmID.ECDSA_256.AsCBOR(), true)
+        message.addAttribute(HeaderKeys.X5CHAIN, CBORObject.NewArray().apply { Add(certificate.encoded) }, true)
+        message.SetContent(mapOf("age_over_21" to true).toCbor())
+        message.sign(OneKey(keyPair.public, keyPair.private))
+
+        val verifier = DefaultCoseVerifier()
+        assertFailsWith<VerificationError.TrustAnchorsUnavailable> {
+            verifier.verifyIssuer(message.EncodeToBytes(), emptyList(), Instant.now())
+        }
     }
 
     private fun Map<String, Any?>.toCbor(): ByteArray {

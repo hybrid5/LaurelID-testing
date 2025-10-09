@@ -8,9 +8,11 @@ import com.laurelid.auth.crypto.HpkeEngine.Companion.DEFAULT_KEY_ALIAS
 import com.laurelid.auth.crypto.HpkeKeyProvider
 import com.laurelid.auth.deviceengagement.TransportType
 import com.laurelid.auth.trust.TrustStore
+import com.laurelid.auth.trust.TrustAnchorsUnavailable
 import com.laurelid.auth.verifier.PresentationRequestBuilder
 import com.laurelid.util.Logger
 import java.io.ByteArrayInputStream
+import java.security.MessageDigest
 import java.security.SecureRandom
 import java.security.cert.CertificateFactory
 import java.security.cert.X509Certificate
@@ -57,16 +59,31 @@ class SessionManager @Inject constructor(
 
     suspend fun decryptAndVerify(session: ActiveSession, ciphertext: ByteArray): VerificationResult = mutex.withLock {
         check(activeSession == session) { "Session is no longer active" }
-        val plaintext = hpkeEngine.decrypt(ciphertext, session.engagement.transcript)
-        val response = parseDeviceResponse(plaintext)
-        val roots = trustStore.loadIacaRoots()
-        val issuer: VerifiedIssuer = coseVerifier.verifyIssuer(response.issuerSigned, roots)
-        if (!VerifierFeatureFlags.devProfileMode && response.deviceCertificates.isNotEmpty()) {
+        val transcript = buildTranscript(session)
+        val response = hpkeEngine.decrypt(ciphertext, session.engagement.transcript).use { plaintext ->
+            parseDeviceResponse(plaintext.copy())
+        }
+        val roots = try {
+            trustStore.loadIacaRoots()
+        } catch (error: TrustAnchorsUnavailable) {
+            throw VerificationError.TrustAnchorsUnavailable("IACA anchors unavailable", error)
+        }
+        val issuer: VerifiedIssuer = coseVerifier.verifyIssuer(
+            response.issuerSigned,
+            roots,
+            clock.instant(),
+        )
+        val chainOk = if (!VerifierFeatureFlags.devProfileMode && response.deviceCertificates.isNotEmpty()) {
             trustStore.verifyChain(response.deviceCertificates, listOf(issuer.signerCert), clock.instant())
+        } else {
+            true
+        }
+        if (!chainOk) {
+            throw VerificationError.DeviceCertUntrusted("device chain not anchored to IACA")
         }
         val deviceSignatureValid = coseVerifier.verifyDeviceSignature(
             response.deviceSignature,
-            buildTranscript(session),
+            transcript,
             response.deviceCertificates,
         )
         val minimized = presentationBuilder.minimize(issuer.claims)
@@ -83,7 +100,16 @@ class SessionManager @Inject constructor(
         result
     }
 
-    fun buildTranscript(session: ActiveSession): ByteArray = session.engagement.transcript
+    fun buildTranscript(session: ActiveSession): ByteArray {
+        val digest = MessageDigest.getInstance("SHA-256")
+        val payloadHash = digest.digest(session.engagement.transcript)
+        val map = CBORObject.NewMap().apply {
+            set(CBORObject.FromObject("engagementPayloadHash"), CBORObject.FromObject(payloadHash))
+            set(CBORObject.FromObject("verifierNonce"), CBORObject.FromObject(session.request.nonce))
+            set(CBORObject.FromObject("ts"), CBORObject.FromObject(clock.instant().toEpochMilli()))
+        }
+        return map.EncodeToBytes() // Session transcript per ISO/IEC 18013-7. 【ISO18013-7】
+    }
 
     fun encodeRequestQr(session: ActiveSession): ByteArray? =
         if (session.transport.type == TransportType.WEB) session.engagement.transcript else null

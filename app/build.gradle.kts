@@ -1,4 +1,5 @@
 // app/build.gradle.kts
+import java.util.Properties
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
@@ -8,6 +9,17 @@ plugins {
   alias(libs.plugins.ksp)
   alias(libs.plugins.kotlin.kapt)
   alias(libs.plugins.hilt.android.plugin)
+}
+
+val playIntegrityProjectNumber: Long = run {
+  val props = Properties()
+  val local = rootProject.file("local.properties")
+  if (local.exists()) {
+    local.inputStream().use(props::load)
+  }
+  props.getProperty("playIntegrityProjectNumber")?.toLongOrNull()
+    ?: props.getProperty("PLAY_INTEGRITY_PROJECT_NUMBER")?.toLongOrNull()
+    ?: 0L
 }
 
 android {
@@ -21,7 +33,7 @@ android {
     versionCode = 1
     versionName = "1.0"
 
-    buildConfigField("long", "PLAY_INTEGRITY_PROJECT_NUMBER", "0L")
+    buildConfigField("long", "PLAY_INTEGRITY_PROJECT_NUMBER", "${playIntegrityProjectNumber}L")
     buildConfigField("boolean", "USE_OFFLINE_TEST_VECTORS", "false")
     buildConfigField("boolean", "DEVPROFILE_MODE", "false")
     buildConfigField("boolean", "TRANSPORT_QR_ENABLED", "true")

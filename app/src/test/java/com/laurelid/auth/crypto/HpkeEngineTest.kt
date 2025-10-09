@@ -4,6 +4,7 @@ import java.security.KeyPairGenerator
 import java.security.spec.NamedParameterSpec
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 import org.bouncycastle.crypto.hpke.HPKE
 import org.junit.Test
 
@@ -23,7 +24,11 @@ class HpkeEngineTest {
         val envelope = HpkeEnvelope(sender.encapsulated(), ciphertext)
 
         val decrypted = engine.decrypt(envelope.toByteArray(), ByteArray(0))
-        assertContentEquals(plaintext, decrypted)
+        decrypted.use { secure ->
+            assertContentEquals(plaintext, secure.copy())
+        }
+        val wiped = decrypted.copy()
+        assertTrue(wiped.all { it == 0.toByte() })
         assertEquals(provider.getPublicKeyBytes().size, 32)
     }
 }

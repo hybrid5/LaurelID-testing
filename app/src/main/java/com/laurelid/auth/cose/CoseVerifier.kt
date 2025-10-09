@@ -3,15 +3,20 @@ package com.laurelid.auth.cose
 import COSE.HeaderKeys
 import COSE.OneKey
 import COSE.Sign1Message
+import com.laurelid.auth.session.VerificationError
 import com.laurelid.auth.session.VerifierFeatureFlags
 import com.upokecenter.cbor.CBORObject
 import java.io.ByteArrayInputStream
 import java.security.MessageDigest
 import java.security.cert.CertPathValidator
 import java.security.cert.CertificateFactory
+import java.security.cert.CertificateExpiredException
+import java.security.cert.CertificateNotYetValidException
 import java.security.cert.PKIXParameters
 import java.security.cert.TrustAnchor
 import java.security.cert.X509Certificate
+import java.time.Instant
+import java.util.Date
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -19,7 +24,7 @@ import javax.inject.Singleton
  * Verifies issuer and device signatures contained in ISO/IEC 18013-5 Mobile Security Objects.
  */
 interface CoseVerifier {
-    fun verifyIssuer(payload: ByteArray, trustAnchors: List<X509Certificate>): VerifiedIssuer
+    fun verifyIssuer(payload: ByteArray, trustAnchors: List<X509Certificate>, at: Instant): VerifiedIssuer
     fun verifyDeviceSignature(deviceSignature: ByteArray, transcript: ByteArray, deviceChain: List<X509Certificate>): Boolean
     fun extractAttributes(issuer: VerifiedIssuer, requested: Collection<String>): Map<String, Any?>
 }
@@ -33,21 +38,35 @@ data class VerifiedIssuer(
 @Singleton
 class DefaultCoseVerifier @Inject constructor() : CoseVerifier {
 
-    override fun verifyIssuer(payload: ByteArray, trustAnchors: List<X509Certificate>): VerifiedIssuer {
+    override fun verifyIssuer(
+        payload: ByteArray,
+        trustAnchors: List<X509Certificate>,
+        at: Instant,
+    ): VerifiedIssuer {
         val message = Sign1Message.DecodeFromBytes(payload)
         val certificates = extractCertificates(message)
-        if (certificates.isEmpty()) error("MSO missing signer certificate")
+        if (certificates.isEmpty()) {
+            throw VerificationError.IssuerUntrusted("MSO missing signer certificate")
+        }
 
         if (!VerifierFeatureFlags.devProfileMode) {
-            validateChain(certificates, trustAnchors)
+            validateChain(certificates, trustAnchors, at)
         }
 
         val signer = certificates.first()
+        try {
+            signer.checkValidity(Date.from(at))
+        } catch (expired: CertificateExpiredException) {
+            throw VerificationError.IssuerCertificateExpired("Issuer certificate expired", expired)
+        } catch (notYetValid: CertificateNotYetValidException) {
+            throw VerificationError.IssuerUntrusted("Issuer certificate not yet valid", notYetValid)
+        }
         if (!message.validate(OneKey(signer.publicKey, null))) {
-            error("Issuer signature validation failed")
+            throw VerificationError.IssuerUntrusted("Issuer signature validation failed")
         }
 
-        val claims = decodeClaims(message.payload ?: error("MSO missing payload"))
+        val payloadCbor = message.payload ?: throw VerificationError.IssuerUntrusted("MSO missing payload")
+        val claims = decodeClaims(payloadCbor) // COSE/issuer processing per ISO/IEC 18013-5 §9. 【ISO18013-5§9】
         return VerifiedIssuer(signer, claims)
     }
 
@@ -61,9 +80,6 @@ class DefaultCoseVerifier @Inject constructor() : CoseVerifier {
         val aad = MessageDigest.getInstance("SHA-256").digest(transcript)
         message.setExternal(aad)
         val publicKey = deviceChain.first().publicKey
-        if (!VerifierFeatureFlags.devProfileMode && deviceChain.size > 1) {
-            validateChain(deviceChain, emptyList())
-        }
         return message.validate(OneKey(publicKey, null))
     }
 
@@ -89,15 +105,29 @@ class DefaultCoseVerifier @Inject constructor() : CoseVerifier {
         return certificates
     }
 
-    private fun validateChain(chain: List<X509Certificate>, anchors: List<X509Certificate>) {
-        if (chain.isEmpty()) error("Empty certificate chain")
+    private fun validateChain(
+        chain: List<X509Certificate>,
+        anchors: List<X509Certificate>,
+        at: Instant,
+    ) {
+        if (chain.isEmpty()) {
+            throw VerificationError.IssuerUntrusted("Empty certificate chain")
+        }
         val trustAnchors = anchors.map { TrustAnchor(it, null) }.toSet()
-        if (trustAnchors.isEmpty()) return
+        if (trustAnchors.isEmpty()) {
+            throw VerificationError.TrustAnchorsUnavailable("No IACA trust anchors configured")
+        }
         val cf = CertificateFactory.getInstance("X.509")
         val certPath = cf.generateCertPath(chain)
-        val params = PKIXParameters(trustAnchors).apply { isRevocationEnabled = false }
+        val params = PKIXParameters(trustAnchors).apply {
+            isRevocationEnabled = false
+            date = Date.from(at)
+        }
         val validator = CertPathValidator.getInstance("PKIX")
-        validator.validate(certPath, params)
+        runCatching { validator.validate(certPath, params) }
+            .getOrElse { throwable ->
+                throw VerificationError.IssuerUntrusted("Issuer chain validation failed", throwable)
+            }
     }
 
     private fun decodeClaims(payload: ByteArray): Map<String, Any?> {

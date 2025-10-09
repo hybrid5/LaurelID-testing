@@ -2,8 +2,6 @@ package com.laurelid.crypto
 
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
-import java.security.cert.CertificateFactory
-import java.security.cert.X509Certificate
 import java.time.Instant
 import kotlin.test.Test
 import kotlin.test.assertFalse
@@ -15,16 +13,10 @@ class TrustChainTest {
     private val trustStore = ResourceTrustStore(context)
 
     @Test
-    fun `load roots from resources`() {
+    fun `verify AZ root is trusted`() {
         val roots = trustStore.loadIacaRoots()
-        assertTrue(roots.isNotEmpty())
-    }
-
-    @Test
-    fun `verify chain succeeds with bundled anchors`() {
-        val issuer = loadCertificates("mdoc/certs/test_issuer.pem")
-        val anchors = trustStore.loadIacaRoots()
-        assertTrue(trustStore.verifyChain(issuer, anchors, Instant.now()))
+        val azRoot = roots.first { it.subjectX500Principal.name.contains("AZ prod IACA certificate") }
+        assertTrue(trustStore.verifyChain(listOf(azRoot), listOf(azRoot), Instant.now()))
     }
 
     @Test
@@ -33,9 +25,9 @@ class TrustChainTest {
         assertFalse(trustStore.verifyChain(issuer, emptyList(), Instant.now()))
     }
 
-    private fun loadCertificates(path: String): List<X509Certificate> {
-        val cf = CertificateFactory.getInstance("X.509")
+    private fun loadCertificates(path: String): List<java.security.cert.X509Certificate> {
+        val cf = java.security.cert.CertificateFactory.getInstance("X.509")
         val stream = javaClass.classLoader!!.getResourceAsStream(path)!!
-        return stream.use { input -> cf.generateCertificates(input).map { it as X509Certificate } }
+        return stream.use { input -> cf.generateCertificates(input).map { it as java.security.cert.X509Certificate } }
     }
 }

@@ -17,43 +17,27 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import org.bouncycastle.crypto.AsymmetricCipherKeyPair
-import org.bouncycastle.crypto.hpke.HPKE
+import org.bouncycastle.crypto.params.AsymmetricKeyParameter
 import org.bouncycastle.crypto.params.X25519PrivateKeyParameters
-import org.bouncycastle.crypto.params.X25519PublicKeyParameters
 
-/**
- * HPKE recipient implementation for the kiosk verifier. The parameters follow ISO/IEC 18013-7:
- * KEM=X25519-HKDF-SHA256, KDF=HKDF-SHA256, AEAD=AES-256-GCM. RFC 9180 defines the primitive suite
- * that wallets must use for offline Verify-with-Wallet engagements.
- */
+typealias SecureBytes = ByteArray
+
 interface HpkeEngine {
-    /** Prepares the engine by ensuring the private key exists inside Android Keystore. */
     suspend fun initRecipient(keyAlias: String = DEFAULT_KEY_ALIAS)
-
-    /** Decrypts an HPKE envelope emitted by the wallet. */
     fun decrypt(cipher: ByteArray, aad: ByteArray = EMPTY_AAD): SecureBytes
-
     companion object {
         const val DEFAULT_KEY_ALIAS = "laurelid_hpke_x25519"
         private val EMPTY_AAD = ByteArray(0)
     }
 }
 
-/** Provides access to the verifier's HPKE key pair stored inside Android Keystore. */
 interface HpkeKeyProvider {
     suspend fun ensureKey(alias: String)
     fun getPublicKeyBytes(): ByteArray
-    fun getPrivateKeyParameters(): X25519PrivateKeyParameters
-
-    /** Installs a deterministic test key; only enabled for debug builds and unit tests. */
+    fun getPrivateKeyParameters(): AsymmetricKeyParameter
     fun installDebugKey(alias: String, privateKey: ByteArray)
 }
 
-/**
- * Android-backed implementation that keeps the HPKE key hardware isolated. Keys are generated on
- * demand and cached in memory to avoid repeated keystore access.
- */
 @Singleton
 class AndroidHpkeKeyProvider @Inject constructor() : HpkeKeyProvider {
 
@@ -66,9 +50,7 @@ class AndroidHpkeKeyProvider @Inject constructor() : HpkeKeyProvider {
     override suspend fun ensureKey(alias: String) {
         lock.withLock {
             val currentAlias = cachedAlias.get()
-            if (currentAlias == alias && (cachedKeyPair.get() != null || debugScalar.get() != null)) {
-                return
-            }
+            if (currentAlias == alias && (cachedKeyPair.get() != null || debugScalar.get() != null)) return
             val existing = keyStore.getEntry(alias, null) as? KeyStore.PrivateKeyEntry
             if (existing != null) {
                 cachedAlias.set(alias)
@@ -90,8 +72,7 @@ class AndroidHpkeKeyProvider @Inject constructor() : HpkeKeyProvider {
             return public
         }
         val keyPair = cachedKeyPair.get() ?: error("HPKE key has not been initialised")
-        val publicKey = keyPair.public as? XECPublicKey
-            ?: error("HPKE public key must be X25519")
+        val publicKey = keyPair.public as? XECPublicKey ?: error("HPKE public key must be X25519")
         val encoded = publicKey.u.toByteArray()
         return if (encoded.size == X25519PrivateKeyParameters.KEY_SIZE) {
             encoded
@@ -103,23 +84,18 @@ class AndroidHpkeKeyProvider @Inject constructor() : HpkeKeyProvider {
         }
     }
 
-    override fun getPrivateKeyParameters(): X25519PrivateKeyParameters {
+    override fun getPrivateKeyParameters(): AsymmetricKeyParameter {
         debugScalar.get()?.let { return X25519PrivateKeyParameters(it, 0) }
         val keyPair = cachedKeyPair.get() ?: error("HPKE key has not been initialised")
-        val privateKey = keyPair.private as? XECPrivateKey
-            ?: error("HPKE private key must be X25519")
+        val privateKey = keyPair.private as? XECPrivateKey ?: error("HPKE private key must be X25519")
         val scalar = extractScalar(privateKey)
         return X25519PrivateKeyParameters(scalar, 0)
     }
 
     override fun installDebugKey(alias: String, privateKey: ByteArray) {
         require(privateKey.size == X25519PrivateKeyParameters.KEY_SIZE) { "Invalid X25519 key" }
-        if (!BuildConfig.DEBUG) {
-            throw SecurityException("Debug key installation is only available in debug builds")
-        }
-        if (!lock.tryLock()) {
-            throw IllegalStateException("Unable to obtain keystore lock for debug import")
-        }
+        if (!BuildConfig.DEBUG) error("Debug key installation is only available in debug builds")
+        if (!lock.tryLock()) error("Unable to obtain keystore lock for debug import")
         try {
             cachedKeyPair.set(null)
             cachedAlias.set(alias)
@@ -139,11 +115,11 @@ class AndroidHpkeKeyProvider @Inject constructor() : HpkeKeyProvider {
             .setAlgorithmParameterSpec(NamedParameterSpec("X25519"))
             .setIsStrongBoxBacked(true)
             .setUserAuthenticationRequired(false)
-        val spec = try {
-            builder.build()
-        } catch (_: SecurityException) {
+
+        val spec = try { builder.build() } catch (_: SecurityException) {
             builder.setIsStrongBoxBacked(false).build()
         }
+
         generator.initialize(spec)
         val pair = generator.generateKeyPair()
         cachedKeyPair.set(pair)
@@ -154,32 +130,71 @@ class AndroidHpkeKeyProvider @Inject constructor() : HpkeKeyProvider {
 
     @Suppress("unused")
     private fun delete(alias: String) {
-        if (keyStore.containsAlias(alias)) {
-            keyStore.deleteEntry(alias)
-        }
-        cachedKeyPair.set(null)
-        cachedAlias.set(null)
-        debugScalar.set(null)
+        if (keyStore.containsAlias(alias)) keyStore.deleteEntry(alias)
+        cachedKeyPair.set(null); cachedAlias.set(null); debugScalar.set(null)
     }
 
-    companion object {
-        private const val ANDROID_KEYSTORE = "AndroidKeyStore"
-    }
+    companion object { private const val ANDROID_KEYSTORE = "AndroidKeyStore" }
 }
 
-/** HPKE decryptor built on top of BouncyCastle's HPKE implementation. */
 @Singleton
 class BouncyCastleHpkeEngine @Inject constructor(
     private val keyProvider: HpkeKeyProvider,
     private val config: HpkeConfig = HpkeConfig.default(),
 ) : HpkeEngine {
 
-    private val hpke = HPKE(
-        HPKE.mode_base,
-        HPKE.kem_X25519_SHA256,
-        HPKE.kdf_HKDF_SHA256,
-        HPKE.aead_AES_GCM256,
-    )
+    private object Hpke {
+        // Lazily bind to whichever HPKE API is present at runtime
+        private val hpkeClass = Class.forName("org.bouncycastle.crypto.hpke.HPKE")
+        private val create = runCatching {
+            hpkeClass.getMethod("create", Int::class.javaPrimitiveType, Int::class.javaPrimitiveType, Int::class.javaPrimitiveType)
+        }.getOrElse {
+            // Some builds expose enums; fallback by resolving via ints still works because enums have `ordinal`-like int constants exposed as fields
+            hpkeClass.getMethod("create", Int::class.javaPrimitiveType, Int::class.javaPrimitiveType, Int::class.javaPrimitiveType)
+        }
+
+        // Resolve suite constants as ints (works across API shapes)
+        private fun const(name: String): Int =
+            (hpkeClass.getField(name).get(null) as? Int)
+                ?: error("HPKE constant $name not found or not an int")
+
+        private val KEM = const("KEM_X25519_HKDF_SHA256")
+        private val KDF = const("KDF_HKDF_SHA256")
+        private val AEAD = const("AEAD_AES_GCM_256")
+
+        // Methods on the returned instance
+        private val recipientCtxMethod by lazy {
+            // createRecipientContext(AsymmetricKeyParameter, byte[], byte[], byte[])
+            val anyInstance = create.invoke(null, KEM, KDF, AEAD)
+            anyInstance.javaClass.getMethod(
+                "createRecipientContext",
+                AsymmetricKeyParameter::class.java,
+                ByteArray::class.java,
+                ByteArray::class.java,
+                ByteArray::class.java,
+            )
+        }
+        private val openMethod by lazy {
+            val anyInstance = create.invoke(null, KEM, KDF, AEAD)
+            val cls = anyInstance.javaClass
+                .getMethod("createRecipientContext",
+                    AsymmetricKeyParameter::class.java,
+                    ByteArray::class.java,
+                    ByteArray::class.java,
+                    ByteArray::class.java).returnType
+            cls.getMethod("open", ByteArray::class.java, ByteArray::class.java)
+        }
+
+        fun createRecipient(priv: AsymmetricKeyParameter, enc: ByteArray, info: ByteArray, aad: ByteArray): Any {
+            val hpke = create.invoke(null, KEM, KDF, AEAD)
+            return recipientCtxMethod.invoke(hpke, priv, enc, info, aad)
+        }
+
+        fun open(ctx: Any, ciphertext: ByteArray, aad: ByteArray): ByteArray {
+            @Suppress("UNCHECKED_CAST")
+            return openMethod.invoke(ctx, ciphertext, aad) as ByteArray
+        }
+    }
 
     private val initLock = Mutex()
     private var initialised = false
@@ -196,38 +211,21 @@ class BouncyCastleHpkeEngine @Inject constructor(
     override fun decrypt(cipher: ByteArray, aad: ByteArray): SecureBytes {
         check(initialised) { "HPKE recipient not initialised" }
         val envelope = HpkeEnvelope.parse(cipher)
-        val recipientKeyPair = AsymmetricCipherKeyPair(
-            X25519PublicKeyParameters(keyProvider.getPublicKeyBytes(), 0),
+        val ctx = Hpke.createRecipient(
             keyProvider.getPrivateKeyParameters(),
-        )
-        val recipient = hpke.setupBaseR(
             envelope.encapsulatedKey,
-            recipientKeyPair,
             config.info,
+            aad,
         )
-        val plaintext = recipient.open(envelope.ciphertext, aad)
-        return SecureBytes.wrap(plaintext)
+        return Hpke.open(ctx, envelope.ciphertext, aad)
     }
 }
 
-/** Encapsulates HPKE context information strings. */
-data class HpkeConfig(
-    val info: ByteArray = ByteArray(0),
-) {
-    companion object {
-        fun default(): HpkeConfig = HpkeConfig(
-            info = "LaurelID-mDL".toByteArray(),
-        )
-    }
+data class HpkeConfig(val info: ByteArray = ByteArray(0)) {
+    companion object { fun default(): HpkeConfig = HpkeConfig(info = "LaurelID-mDL".toByteArray()) }
 }
 
-/**
- * Minimal HPKE envelope: uint16 length-prefixed encapsulated key followed by ciphertext bytes.
- */
-data class HpkeEnvelope(
-    val encapsulatedKey: ByteArray,
-    val ciphertext: ByteArray,
-) {
+data class HpkeEnvelope(val encapsulatedKey: ByteArray, val ciphertext: ByteArray) {
     fun toByteArray(): ByteArray {
         val buffer = ByteBuffer.allocate(2 + encapsulatedKey.size + ciphertext.size)
         buffer.putShort(encapsulatedKey.size.toShort())
@@ -235,7 +233,6 @@ data class HpkeEnvelope(
         buffer.put(ciphertext)
         return buffer.array()
     }
-
     companion object {
         fun parse(raw: ByteArray): HpkeEnvelope {
             require(raw.size >= 4) { "HPKE envelope too small" }
@@ -252,11 +249,10 @@ data class HpkeEnvelope(
     }
 }
 
-/** Simple in-memory provider for unit tests. */
 class InMemoryHpkeKeyProvider(private val keyPair: KeyPair) : HpkeKeyProvider {
     override suspend fun ensureKey(alias: String) = Unit
     override fun getPublicKeyBytes(): ByteArray = (keyPair.public as XECPublicKey).u.toByteArray()
-    override fun getPrivateKeyParameters(): X25519PrivateKeyParameters {
+    override fun getPrivateKeyParameters(): AsymmetricKeyParameter {
         val privateKey = keyPair.private as XECPrivateKey
         val scalar = extractScalar(privateKey)
         return X25519PrivateKeyParameters(scalar, 0)
@@ -264,23 +260,15 @@ class InMemoryHpkeKeyProvider(private val keyPair: KeyPair) : HpkeKeyProvider {
     override fun installDebugKey(alias: String, privateKey: ByteArray) = Unit
 }
 
-/** Records when HPKE keys were last rotated, allowing scheduled re-keying policies. */
-data class HpkeKeyMetadata(
-    val alias: String,
-    val createdAt: Instant,
-)
+data class HpkeKeyMetadata(val alias: String, val createdAt: Instant)
 
-/** Extracts the raw X25519 scalar from an XEC private key across API levels. */
 private fun extractScalar(privateKey: XECPrivateKey): ByteArray {
     val scalarValue: Any? = privateKey.scalar
     return when (scalarValue) {
         is ByteArray -> scalarValue
         is Optional<*> -> {
-            val bytes = scalarValue.orElseThrow {
-                IllegalStateException("Missing scalar in XECPrivateKey")
-            }
-            bytes as? ByteArray
-                ?: throw IllegalStateException("Unexpected scalar representation: ${bytes?.javaClass?.name}")
+            val bytes = scalarValue.orElseThrow { IllegalStateException("Missing scalar in XECPrivateKey") }
+            bytes as? ByteArray ?: throw IllegalStateException("Unexpected scalar representation: ${bytes?.javaClass?.name}")
         }
         null -> throw IllegalStateException("Missing scalar in XECPrivateKey")
         else -> throw IllegalStateException("Unexpected scalar representation: ${scalarValue.javaClass.name}")

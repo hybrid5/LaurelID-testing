@@ -60,32 +60,34 @@ class SessionManager @Inject constructor(
     suspend fun decryptAndVerify(session: ActiveSession, ciphertext: ByteArray): VerificationResult = mutex.withLock {
         check(activeSession == session) { "Session is no longer active" }
         val transcript = buildTranscript(session)
-        val response = hpkeEngine.decrypt(ciphertext, session.engagement.transcript).use { plaintext ->
-            parseDeviceResponse(plaintext.copy())
-        }
+        val plaintext = hpkeEngine.decrypt(ciphertext, session.engagement.transcript)
+        val response = parseDeviceResponse(plaintext)
+
         val roots = try {
             trustStore.loadIacaRoots()
         } catch (error: TrustAnchorsUnavailable) {
             throw VerificationError.IssuerTrustUnavailable("No IACA trust anchors configured", error)
         }
+
         val issuer: VerifiedIssuer = coseVerifier.verifyIssuer(
             response.issuerSigned,
             roots,
             clock.instant(),
         )
+
         val chainOk = if (!VerifierFeatureFlags.devProfileMode && response.deviceCertificates.isNotEmpty()) {
             trustStore.verifyChain(response.deviceCertificates, listOf(issuer.signerCert), clock.instant())
         } else {
             true
         }
-        if (!chainOk) {
-            throw VerificationError.DeviceCertUntrusted("device chain not anchored to IACA")
-        }
+        if (!chainOk) throw VerificationError.DeviceCertUntrusted("device chain not anchored to IACA")
+
         val deviceSignatureValid = coseVerifier.verifyDeviceSignature(
             response.deviceSignature,
             transcript,
             response.deviceCertificates,
         )
+
         val minimized = presentationBuilder.minimize(issuer.claims)
         val result = VerificationResult(
             isSuccess = deviceSignatureValid,
@@ -93,9 +95,8 @@ class SessionManager @Inject constructor(
             portrait = issuer.claims[PORTRAIT_KEY] as? ByteArray,
             audit = buildAuditEntries(issuer, deviceSignatureValid, minimized.keys),
         )
-        if (deviceSignatureValid) {
-            cleanup()
-        }
+
+        if (deviceSignatureValid) cleanup()
         Logger.i(TAG, "Verification completed success=$deviceSignatureValid")
         result
     }
@@ -108,7 +109,7 @@ class SessionManager @Inject constructor(
             set(CBORObject.FromObject("verifierNonce"), CBORObject.FromObject(session.request.nonce))
             set(CBORObject.FromObject("ts"), CBORObject.FromObject(clock.instant().toEpochMilli()))
         }
-        return map.EncodeToBytes() // ISO/IEC 18013-7 session transcript
+        return map.EncodeToBytes()
     }
 
     fun encodeRequestQr(session: ActiveSession): ByteArray? =
@@ -129,9 +130,7 @@ class SessionManager @Inject constructor(
             TransportType.NFC -> SessionTransport(TransportType.NFC, nfcTransport)
             TransportType.BLE -> SessionTransport(TransportType.BLE, bleTransport)
         }
-        if (transport.type == TransportType.WEB) {
-            webTransport.stage(request)
-        }
+        if (transport.type == TransportType.WEB) webTransport.stage(request)
         return transport
     }
 
@@ -140,21 +139,22 @@ class SessionManager @Inject constructor(
         val issuerSigned = cbor["issuerSigned"].GetByteString()
         val deviceSignature = cbor["deviceSignature"].GetByteString()
         val certArray = cbor["deviceCertificates"]
-        val certificates = mutableListOf<X509Certificate>()
         val factory = CertificateFactory.getInstance("X.509")
-        for (i in 0 until certArray.size()) {
-            val der = certArray[i].GetByteString()
-            certificates += factory.generateCertificate(ByteArrayInputStream(der)) as X509Certificate
+        val certificates = buildList(certArray.size()) {
+            for (i in 0 until certArray.size()) {
+                val der = certArray[i].GetByteString()
+                add(factory.generateCertificate(ByteArrayInputStream(der)) as X509Certificate)
+            }
         }
         return DeviceResponse(issuerSigned, deviceSignature, certificates)
     }
 
     private fun buildAuditEntries(issuer: VerifiedIssuer, signatureValid: Boolean, elements: Set<String>): List<String> =
-        buildList {
-            add("issuer=${issuer.signerCert.subjectX500Principal.name}")
-            add("signatureValid=$signatureValid")
-            add("elements=${elements.joinToString()}")
-        }
+        listOf(
+            "issuer=${issuer.signerCert.subjectX500Principal.name}",
+            "signatureValid=$signatureValid",
+            "elements=${elements.joinToString()}"
+        )
 
     data class ActiveSession(
         val request: VerificationRequest,

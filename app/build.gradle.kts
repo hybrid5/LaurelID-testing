@@ -41,6 +41,7 @@ android {
     buildConfigField("boolean", "TRANSPORT_NFC_ENABLED", "true")
     buildConfigField("boolean", "TRANSPORT_BLE_ENABLED", "false")
     buildConfigField("boolean", "DEV_MODE", "false")
+    buildConfigField("boolean", "ALLOW_PLAINTEXT_TRUST_CACHE_FOR_TESTS", "false")
   }
 
   flavorDimensions += listOf("environment")

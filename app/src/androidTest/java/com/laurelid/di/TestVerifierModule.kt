@@ -69,6 +69,7 @@ private class FakeTrustListRepository(
             TrustListTestAuthority.signedResponse(entries)
     },
     cacheDir = File(context.cacheDir, "fake_trust_list"),
+    allowPlaintextCacheForTests = true,
     defaultMaxAgeMillis = Long.MAX_VALUE,
     defaultStaleTtlMillis = Long.MAX_VALUE,
     ioDispatcher = Dispatchers.IO,

@@ -21,6 +21,7 @@ import kotlin.math.min
 open class TrustListRepository internal constructor(
     api: TrustListApi,
     private val cacheDir: File,
+    private val context: Context? = null,
     private val defaultMaxAgeMillis: Long = DEFAULT_MAX_AGE_MILLIS,
     private val defaultStaleTtlMillis: Long = DEFAULT_STALE_TTL_MILLIS,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
@@ -28,9 +29,13 @@ open class TrustListRepository internal constructor(
     private val delayProvider: suspend (Long) -> Unit = { delay(it) },
     private val retryPolicy: RetryPolicy = RetryPolicy(),
     private val manifestVerifier: TrustListManifestVerifier,
-    private val cacheStorage: TrustListCacheStorage = PlainTextTrustListCacheStorage(File(cacheDir, CACHE_FILE_NAME)),
+    cacheStorage: TrustListCacheStorage? = null,
     private val seedLoader: TrustListSeedLoader? = null,
+    private val allowPlaintextCacheForTests: Boolean = BuildConfig.ALLOW_PLAINTEXT_TRUST_CACHE_FOR_TESTS,
 ) {
+
+    private val cacheFile = File(cacheDir, CACHE_FILE_NAME)
+    private val cacheStorage: TrustListCacheStorage = cacheStorage ?: createDefaultCacheStorage()
 
     data class RetryPolicy(
         val maxAttempts: Int = DEFAULT_MAX_ATTEMPTS,
@@ -581,15 +586,27 @@ open class TrustListRepository internal constructor(
             return TrustListRepository(
                 api = api,
                 cacheDir = directory,
+                context = context,
                 defaultMaxAgeMillis = defaultMaxAgeMillis,
                 defaultStaleTtlMillis = BuildConfig.TRUST_LIST_CACHE_STALE_TTL_MILLIS,
                 ioDispatcher = ioDispatcher,
                 initialBaseUrl = sanitizedBaseUrl,
                 manifestVerifier = manifestVerifier,
-                cacheStorage = EncryptedTrustListCacheStorage(context, cacheFile),
                 seedLoader = seedLoader,
             )
         }
+    }
+
+    private fun createDefaultCacheStorage(): TrustListCacheStorage {
+        if (context != null) {
+            return EncryptedTrustListCacheStorage(context, cacheFile)
+        }
+        if (allowPlaintextCacheForTests) {
+            return PlainTextTrustListCacheStorage(cacheFile)
+        }
+        throw IllegalStateException(
+            "Encrypted trust list cache requires application context; enable plaintext cache explicitly for tests."
+        )
     }
 }
 

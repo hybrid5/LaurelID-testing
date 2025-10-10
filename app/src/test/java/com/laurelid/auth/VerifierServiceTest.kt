@@ -42,6 +42,7 @@ class VerifierServiceTest {
                 MapBackedTrustListApi(entries),
                 dir,
                 manifestVerifier = manifestVerifier,
+                allowPlaintextCacheForTests = true,
             )
             val service = VerifierService(repository, clock)
 
@@ -65,6 +66,7 @@ class VerifierServiceTest {
                 MapBackedTrustListApi(emptyMap()),
                 dir,
                 manifestVerifier = manifestVerifier,
+                allowPlaintextCacheForTests = true,
             ) {
                 override suspend fun getOrRefresh(
                     nowMillis: Long,
@@ -97,6 +99,7 @@ class VerifierServiceTest {
                 MapBackedTrustListApi(emptyMap()),
                 dir,
                 manifestVerifier = manifestVerifier,
+                allowPlaintextCacheForTests = true,
             ) {
                 override suspend fun getOrRefresh(
                     nowMillis: Long,
@@ -129,6 +132,7 @@ class VerifierServiceTest {
                 MapBackedTrustListApi(entries),
                 dir,
                 manifestVerifier = manifestVerifier,
+                allowPlaintextCacheForTests = true,
             ) {
                 override suspend fun getOrRefresh(
                     nowMillis: Long,
@@ -162,6 +166,7 @@ class VerifierServiceTest {
                 MapBackedTrustListApi(entries),
                 dir,
                 manifestVerifier = manifestVerifier,
+                allowPlaintextCacheForTests = true,
             )
             val service = VerifierService(repository, clock)
 
@@ -187,6 +192,7 @@ class VerifierServiceTest {
                 MapBackedTrustListApi(entries),
                 dir,
                 manifestVerifier = manifestVerifier,
+                allowPlaintextCacheForTests = true,
             )
             val service = VerifierService(repository, clock)
 
@@ -215,6 +221,7 @@ class VerifierServiceTest {
                 MapBackedTrustListApi(entries, revokedSerials = revoked),
                 dir,
                 manifestVerifier = manifestVerifier,
+                allowPlaintextCacheForTests = true,
             )
             val service = VerifierService(repository, clock)
 
@@ -240,6 +247,7 @@ class VerifierServiceTest {
                 MapBackedTrustListApi(entries),
                 dir,
                 manifestVerifier = manifestVerifier,
+                allowPlaintextCacheForTests = true,
             )
             val service = VerifierService(repository, clock)
 

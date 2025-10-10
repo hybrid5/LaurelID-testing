@@ -1,11 +1,14 @@
 package com.laurelid.auth
 
+import com.laurelid.BuildConfig
 import com.laurelid.auth.deviceengagement.DeviceEngagementParser
 import com.laurelid.auth.deviceengagement.TransportFactory
 import com.laurelid.auth.deviceengagement.TransportMessage
-import kotlinx.coroutines.runBlocking
 import com.laurelid.util.Logger
+import java.security.MessageDigest
+import kotlinx.coroutines.runBlocking
 import javax.inject.Inject
+import kotlin.text.Charsets
 
 /**
  * Parser for ISO 18013-5 mobile driving licence engagements.
@@ -18,7 +21,9 @@ class ISO18013Parser @Inject constructor(
 ) {
 
     fun parseFromQrPayload(payload: String): ParsedMdoc {
-        Logger.d(TAG, "Parsing QR payload: ${payload.take(64)}")
+        if (BuildConfig.DEBUG) {
+            Logger.d(TAG, "Parsing QR payload hash=${hashPreview(payload)}")
+        }
         return try {
             val engagement = engagementParser.parse(payload)
             val transport = transportFactory.create(engagement)
@@ -44,7 +49,9 @@ class ISO18013Parser @Inject constructor(
     }
 
     fun parseFromNfc(bytes: ByteArray): ParsedMdoc {
-        Logger.d(TAG, "Parsing NFC payload: ${bytes.toLogString()}")
+        if (BuildConfig.DEBUG) {
+            Logger.d(TAG, "Parsing NFC payload hash=${hashPreview(bytes)}")
+        }
         return try {
             deviceResponseParser.parse(bytes)
         } catch (error: MdocParseException) {
@@ -64,9 +71,24 @@ class ISO18013Parser @Inject constructor(
         private const val DEFAULT_DOC_TYPE = "org.iso.18013.5.1.mDL"
         private const val DEFAULT_ISSUER = "AZ-MVD"
 
-        private fun ByteArray.toLogString(): String {
-            val asString = runCatching { String(this, Charsets.UTF_8) }.getOrNull()
-            return asString?.take(64) ?: "${size} bytes"
+        internal fun hashPreview(payload: String): String {
+            if (payload.isEmpty()) return "empty/0"
+            val preview = payload.take(64)
+            return hashBytes(preview.toByteArray(Charsets.UTF_8), preview.length, payload.length)
+        }
+
+        internal fun hashPreview(payload: ByteArray): String {
+            if (payload.isEmpty()) return "empty/0"
+            val preview = if (payload.size <= 64) payload else payload.copyOfRange(0, 64)
+            return hashBytes(preview, preview.size, payload.size)
+        }
+
+        private fun hashBytes(bytes: ByteArray, previewLength: Int, totalLength: Int): String {
+            val digest = MessageDigest.getInstance("SHA-256").digest(bytes)
+            val hex = digest.joinToString(separator = "") { byte ->
+                "%02x".format(byte)
+            }
+            return "$hex/$previewLength:$totalLength"
         }
     }
 }

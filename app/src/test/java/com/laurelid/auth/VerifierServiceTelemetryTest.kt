@@ -39,6 +39,7 @@ class VerifierServiceTelemetryTest {
             defaultStaleTtlMillis = 0L,
             ioDispatcher = Dispatchers.Unconfined,
             manifestVerifier = TrustListTestAuthority.manifestVerifier(),
+            allowPlaintextCacheForTests = true,
         )
         StructuredEventLogger.registerExporter(exporter)
         exporter.clear()
@@ -85,6 +86,7 @@ class VerifierServiceTelemetryTest {
                     TrustListTestAuthority.signedResponse(emptyMap())
             },
             cacheDir = cacheDir,
+            allowPlaintextCacheForTests = true,
             defaultMaxAgeMillis = 0L,
             defaultStaleTtlMillis = 0L,
             ioDispatcher = Dispatchers.Unconfined,

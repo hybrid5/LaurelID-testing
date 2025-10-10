@@ -1,4 +1,5 @@
 package com.laurelid.auth.deviceengagement
+import okio.Timeout
 
 import com.laurelid.auth.DeviceResponseFormat
 import com.laurelid.auth.MdocError

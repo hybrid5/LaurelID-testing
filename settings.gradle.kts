@@ -1,14 +1,19 @@
 // settings.gradle.kts
+import org.gradle.api.initialization.resolve.RepositoriesMode
+
 pluginManagement {
   repositories {
+    // Order matters: keep google() first for Android/AndroidX plugins
     google()
     mavenCentral()
     gradlePluginPortal()
   }
+  // Defensive: map Android plugin IDs to their module coordinates
   resolutionStrategy {
     eachPlugin {
-      if (requested.id.id == "com.google.devtools.ksp") {
-        useModule("com.google.devtools.ksp:com.google.devtools.ksp.gradle.plugin:${requested.version}")
+      val id = requested.id.id
+      if (id == "com.android.application" || id == "com.android.library" || id.startsWith("com.android.")) {
+        useModule("com.android.tools.build:gradle:${requested.version}")
       }
     }
   }
@@ -19,11 +24,6 @@ dependencyResolutionManagement {
   repositories {
     google()
     mavenCentral()
-
-    // Signal’s GCS mirror (secondary)
-    maven("https://storage.googleapis.com/maven.signal.org") {
-      content { includeGroup("org.signal") }
-    }
   }
   versionCatalogs {
     create("libs") {

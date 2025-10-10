@@ -1,11 +1,10 @@
 package com.laurelid.crypto
 
-import java.security.KeyPairGenerator
-import java.security.spec.NamedParameterSpec
 import java.util.Base64
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import com.laurelid.auth.crypto.HpkePrivateKeyHandle
 import org.bouncycastle.crypto.params.X25519PrivateKeyParameters
 
 class HpkeEngineTest {
@@ -23,15 +22,17 @@ class HpkeEngineTest {
 
     @Test
     fun `in-memory provider exposes key bytes`() {
-        val generator = KeyPairGenerator.getInstance("XDH")
-        generator.initialize(NamedParameterSpec("X25519"))
-        val pair = generator.generateKeyPair()
-        val provider = InMemoryHpkeKeyProvider(pair)
+        val privateKey = X25519PrivateKeyParameters(SecureRandomSource.next(), 0)
+        val provider = InMemoryHpkeKeyProvider(privateKey)
         val publicKey = provider.getPublicKeyBytes()
-        val privateParams = provider.getPrivateKeyParameters()
-        assertEquals(publicKey.size, (privateParams as X25519PrivateKeyParameters).encoded.size)
+        val handle = provider.getPrivateKeyHandle() as HpkePrivateKeyHandle.Debug
+        assertEquals(publicKey.size, handle.parameters.encoded.size)
     }
 
     private fun readResource(path: String): String =
         javaClass.classLoader!!.getResource(path)!!.readText()
+}
+
+private object SecureRandomSource {
+    fun next(): ByteArray = java.security.SecureRandom().generateSeed(X25519PrivateKeyParameters.KEY_SIZE)
 }

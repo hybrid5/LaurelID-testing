@@ -49,6 +49,7 @@ class AndroidHpkeEngineTest {
         val provider = AndroidHpkeKeyProvider(context)
         provider.ensureKey(alias)
         val engine = BouncyCastleHpkeEngine(provider)
+        assertTrue(provider.getPrivateKeyHandle() is HpkePrivateKeyHandle.AndroidKeyStore)
         val hpke = HPKE.create(
             HPKE.KEM_X25519_HKDF_SHA256,
             HPKE.KDF_HKDF_SHA256,

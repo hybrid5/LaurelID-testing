@@ -17,9 +17,10 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import org.bouncycastle.crypto.AsymmetricCipherKeyPair
 import org.bouncycastle.crypto.hpke.HPKE
-import org.bouncycastle.crypto.params.AsymmetricKeyParameter
 import org.bouncycastle.crypto.params.X25519PrivateKeyParameters
+import org.bouncycastle.crypto.params.X25519PublicKeyParameters
 
 /**
  * HPKE recipient implementation for the kiosk verifier. The parameters follow ISO/IEC 18013-7:
@@ -43,7 +44,7 @@ interface HpkeEngine {
 interface HpkeKeyProvider {
     suspend fun ensureKey(alias: String)
     fun getPublicKeyBytes(): ByteArray
-    fun getPrivateKeyParameters(): AsymmetricKeyParameter
+    fun getPrivateKeyParameters(): X25519PrivateKeyParameters
 
     /** Installs a deterministic test key; only enabled for debug builds and unit tests. */
     fun installDebugKey(alias: String, privateKey: ByteArray)
@@ -102,7 +103,7 @@ class AndroidHpkeKeyProvider @Inject constructor() : HpkeKeyProvider {
         }
     }
 
-    override fun getPrivateKeyParameters(): AsymmetricKeyParameter {
+    override fun getPrivateKeyParameters(): X25519PrivateKeyParameters {
         debugScalar.get()?.let { return X25519PrivateKeyParameters(it, 0) }
         val keyPair = cachedKeyPair.get() ?: error("HPKE key has not been initialised")
         val privateKey = keyPair.private as? XECPrivateKey
@@ -173,10 +174,11 @@ class BouncyCastleHpkeEngine @Inject constructor(
     private val config: HpkeConfig = HpkeConfig.default(),
 ) : HpkeEngine {
 
-    private val hpke = HPKE.create(
-        HPKE.KEM_X25519_HKDF_SHA256,
-        HPKE.KDF_HKDF_SHA256,
-        HPKE.AEAD_AES_GCM_256,
+    private val hpke = HPKE(
+        HPKE.mode_base,
+        HPKE.kem_X25519_SHA256,
+        HPKE.kdf_HKDF_SHA256,
+        HPKE.aead_AES_GCM256,
     )
 
     private val initLock = Mutex()
@@ -194,11 +196,14 @@ class BouncyCastleHpkeEngine @Inject constructor(
     override fun decrypt(cipher: ByteArray, aad: ByteArray): SecureBytes {
         check(initialised) { "HPKE recipient not initialised" }
         val envelope = HpkeEnvelope.parse(cipher)
-        val recipient = hpke.createRecipientContext(
+        val recipientKeyPair = AsymmetricCipherKeyPair(
+            X25519PublicKeyParameters(keyProvider.getPublicKeyBytes(), 0),
             keyProvider.getPrivateKeyParameters(),
+        )
+        val recipient = hpke.setupBaseR(
             envelope.encapsulatedKey,
+            recipientKeyPair,
             config.info,
-            aad,
         )
         val plaintext = recipient.open(envelope.ciphertext, aad)
         return SecureBytes.wrap(plaintext)
@@ -251,7 +256,7 @@ data class HpkeEnvelope(
 class InMemoryHpkeKeyProvider(private val keyPair: KeyPair) : HpkeKeyProvider {
     override suspend fun ensureKey(alias: String) = Unit
     override fun getPublicKeyBytes(): ByteArray = (keyPair.public as XECPublicKey).u.toByteArray()
-    override fun getPrivateKeyParameters(): AsymmetricKeyParameter {
+    override fun getPrivateKeyParameters(): X25519PrivateKeyParameters {
         val privateKey = keyPair.private as XECPrivateKey
         val scalar = extractScalar(privateKey)
         return X25519PrivateKeyParameters(scalar, 0)

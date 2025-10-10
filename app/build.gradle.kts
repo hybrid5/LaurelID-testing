@@ -9,7 +9,6 @@ plugins {
   alias(libs.plugins.kotlin.android)
   alias(libs.plugins.kotlin.parcelize)
   alias(libs.plugins.ksp)
-  alias(libs.plugins.kotlin.kapt)
   alias(libs.plugins.hilt.android.plugin)
 }
 
@@ -143,11 +142,20 @@ kotlin {
   compilerOptions { jvmTarget.set(JvmTarget.JVM_17) }
 }
 
-kapt { correctErrorTypes = true }
+val releaseRuntimeClasspath by configurations.creating
+
+androidComponents {
+  onVariants { variant ->
+    if (variant.name == "productionRelease") {
+      releaseRuntimeClasspath.extendsFrom(configurations.getByName("${variant.name}RuntimeClasspath"))
+    }
+  }
+}
+
 ksp { arg("room.generateKotlin", "true") }
 
 dependencies {
-  implementation(platform("org.jetbrains.kotlin:kotlin-bom:2.0.21"))
+  implementation(platform(libs.kotlin.bom))
 
   implementation(libs.androidx.activity.ktx)
   implementation(libs.androidx.core.ktx)
@@ -185,7 +193,7 @@ dependencies {
   implementation(libs.mlkit.barcode)
 
   implementation(libs.hilt.android)
-  kapt(libs.hilt.compiler)
+  ksp(libs.hilt.compiler)
 
   testImplementation(kotlin("test"))
   testImplementation(libs.junit)
@@ -201,7 +209,7 @@ dependencies {
   androidTestImplementation(libs.androidx.test.core)
 
   // Core library desugaring (needed by libsignal-android on minSdk < 26; safe in any case)
-  coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")
+  coreLibraryDesugaring(libs.desugarJdkLibs)
 }
 
 val anchorsDir = file("src/main/assets/trust/iaca")

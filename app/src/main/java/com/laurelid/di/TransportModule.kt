@@ -2,7 +2,8 @@ package com.laurelid.di
 
 import android.content.Context
 import android.nfc.NfcAdapter
-import com.laurelid.deviceengagement.NfcAdapterProvider
+import com.laurelid.deviceengagement.NfcAdapterProvider as DeviceNfcAdapterProvider
+import com.laurelid.auth.session.NfcAdapterProvider as SessionNfcAdapterProvider
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -16,7 +17,13 @@ object TransportModule {
 
     @Provides
     @Singleton
-    fun provideNfcAdapterProvider(
+    fun provideDeviceNfcAdapterProvider(
         @ApplicationContext context: Context,
-    ): NfcAdapterProvider = NfcAdapterProvider { NfcAdapter.getDefaultAdapter(context) }
+    ): DeviceNfcAdapterProvider = DeviceNfcAdapterProvider { NfcAdapter.getDefaultAdapter(context) }
+
+    @Provides
+    @Singleton
+    fun provideSessionNfcAdapterProvider(
+        deviceProvider: DeviceNfcAdapterProvider,
+    ): SessionNfcAdapterProvider = SessionNfcAdapterProvider { deviceProvider.get() }
 }

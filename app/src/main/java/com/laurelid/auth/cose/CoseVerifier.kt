@@ -1,11 +1,12 @@
 package com.laurelid.auth.cose
 
-import com.augustcellars.cose.HeaderKeys
-import com.augustcellars.cose.OneKey
-import com.augustcellars.cose.Sign1Message
+import COSE.Message
+import COSE.OneKey
+import COSE.Sign1Message
 import com.laurelid.auth.session.VerificationError
 import com.laurelid.auth.session.VerifierFeatureFlags
 import com.upokecenter.cbor.CBORObject
+import com.upokecenter.cbor.CBORType
 import java.io.ByteArrayInputStream
 import java.security.MessageDigest
 import java.security.cert.CertPathValidator
@@ -44,10 +45,10 @@ class DefaultCoseVerifier @Inject constructor() : CoseVerifier {
         at: Instant,
     ): VerifiedIssuer {
         val message = try {
-            Sign1Message.DecodeFromBytes(payload)
+            Message.DecodeFromBytes(payload) as? Sign1Message
         } catch (throwable: Throwable) {
             throw VerificationError.IssuerUntrusted("MSO is not COSE_Sign1", throwable)
-        }
+        } ?: throw VerificationError.IssuerUntrusted("MSO is not COSE_Sign1")
 
         val certificates = extractCertificates(message)
         if (certificates.isEmpty()) {
@@ -67,7 +68,7 @@ class DefaultCoseVerifier @Inject constructor() : CoseVerifier {
             throw VerificationError.IssuerUntrusted("Issuer certificate not yet valid", notYetValid)
         }
 
-        if (!message.Validate(OneKey(signer.publicKey, null))) {
+        if (!message.validate(OneKey(signer.publicKey, null))) {
             throw VerificationError.IssuerUntrusted("Issuer signature validation failed")
         }
 
@@ -84,14 +85,14 @@ class DefaultCoseVerifier @Inject constructor() : CoseVerifier {
     ): Boolean {
         if (deviceChain.isEmpty()) return false
         val message = try {
-            Sign1Message.DecodeFromBytes(deviceSignature)
+            Message.DecodeFromBytes(deviceSignature) as? Sign1Message
         } catch (_: Throwable) {
             return false
-        }
+        } ?: return false
         val aad = MessageDigest.getInstance("SHA-256").digest(transcript)
-        message.SetExternal(aad)
+        message.setExternal(aad)
         val publicKey = deviceChain.first().publicKey
-        return message.Validate(OneKey(publicKey, null))
+        return message.validate(OneKey(publicKey, null))
     }
 
     override fun extractAttributes(issuer: VerifiedIssuer, requested: Collection<String>): Map<String, Any?> {
@@ -105,11 +106,11 @@ class DefaultCoseVerifier @Inject constructor() : CoseVerifier {
     }
 
     private fun extractCertificates(message: Sign1Message): List<X509Certificate> {
-        val x5chain = message.protectedAttributes[HeaderKeys.X5Chain]
-            ?: message.unprotectedAttributes[HeaderKeys.X5Chain]
+        val label = CBORObject.FromObject(X5CHAIN_LABEL)
+        val x5chain = message.findAttribute(label)
             ?: throw VerificationError.IssuerUntrusted("Missing X5Chain")
 
-        require(x5chain.isArray) { "x5c chain missing" }
+        require(x5chain.type == CBORType.Array) { "x5c chain missing" }
 
         val cf = CertificateFactory.getInstance("X.509")
         return buildList {
@@ -150,16 +151,20 @@ class DefaultCoseVerifier @Inject constructor() : CoseVerifier {
         val claims = mutableMapOf<String, Any?>()
         for (key in cbor.keys) {
             val claimKey = key.AsString()
-            val value = cbor[key]
-            claims[claimKey] = when {
-                value == null -> null
-                value.isBoolean -> value.AsBoolean()
-                value.isNumber -> value.ToObject(Number::class.java)
-                value.isTextString -> value.AsString()
-                value.isByteString -> value.GetByteString()
-                else -> value.ToString()
+            val value = cbor[key] ?: continue
+            claims[claimKey] = when (value.type) {
+                CBORType.Boolean -> value.AsBoolean()
+                CBORType.Number -> value.ToObject(Number::class.java)
+                CBORType.TextString -> value.AsString()
+                CBORType.ByteString -> value.GetByteString()
+                CBORType.Array, CBORType.Map -> value.toString()
+                else -> value.toString()
             }
         }
         return claims
+    }
+
+    private companion object {
+        private const val X5CHAIN_LABEL = 33
     }
 }

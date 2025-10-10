@@ -16,6 +16,7 @@ sealed class MdocError(
         NEGOTIATION_ERROR,
         UNSUPPORTED_RESPONSE_FORMAT,
         MALFORMED_DEVICE_RESPONSE,
+        TIMEOUT,
         UNEXPECTED_FAILURE,
     }
 
@@ -38,6 +39,9 @@ sealed class MdocError(
 
     data class MalformedDeviceResponse(override val detail: String) :
         MdocError(Code.MALFORMED_DEVICE_RESPONSE, detail)
+
+    data class Timeout(override val detail: String) :
+        MdocError(Code.TIMEOUT, detail)
 
     data class Unexpected(override val detail: String) :
         MdocError(Code.UNEXPECTED_FAILURE, detail)

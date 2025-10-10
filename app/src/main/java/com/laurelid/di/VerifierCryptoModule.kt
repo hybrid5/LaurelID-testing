@@ -1,15 +1,17 @@
 package com.laurelid.di
 
-import com.laurelid.crypto.AndroidHpkeKeyProvider
-import com.laurelid.crypto.BouncyCastleHpkeEngine
-import com.laurelid.crypto.CoseVerifier
-import com.laurelid.crypto.DefaultCoseVerifier
-import com.laurelid.crypto.HpkeEngine
-import com.laurelid.crypto.HpkeKeyProvider
+import com.laurelid.auth.crypto.AndroidHpkeKeyProvider
+import com.laurelid.auth.crypto.BouncyCastleHpkeEngine
+import com.laurelid.auth.cose.CoseVerifier
+import com.laurelid.auth.cose.DefaultCoseVerifier
+import com.laurelid.auth.crypto.HpkeConfig
+import com.laurelid.auth.crypto.HpkeEngine
+import com.laurelid.auth.crypto.HpkeKeyProvider
 import com.laurelid.auth.trust.ResourceTrustStore
 import com.laurelid.auth.trust.TrustStore
 import dagger.Binds
 import dagger.Module
+import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 import javax.inject.Singleton
@@ -33,4 +35,10 @@ abstract class VerifierCryptoModule {
     @Binds
     @Singleton
     abstract fun bindHpkeKeyProvider(impl: AndroidHpkeKeyProvider): HpkeKeyProvider
+
+    companion object {
+        @Provides
+        @Singleton
+        fun provideHpkeConfig(): HpkeConfig = HpkeConfig.default()
+    }
 }

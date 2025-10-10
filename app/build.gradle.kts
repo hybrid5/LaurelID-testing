@@ -123,11 +123,25 @@ android {
       signingConfig = if (hasReleaseSigning) releaseSig else signingConfigs.getByName("debug")
       buildConfigField("boolean","INTEGRITY_GATE_ENABLED","true")
     }
+    create("releaseInstrumented") {
+      initWith(getByName("release"))
+      isDebuggable = true
+      matchingFallbacks += listOf("release")
+      val releaseSig = signingConfigs.getByName("release")
+      val hasReleaseSigning =
+        (releaseSig.storeFile != null) &&
+                !releaseSig.keyAlias.isNullOrBlank() &&
+                !releaseSig.storePassword.isNullOrBlank() &&
+                !releaseSig.keyPassword.isNullOrBlank()
+      signingConfig = if (hasReleaseSigning) releaseSig else signingConfigs.getByName("debug")
+    }
     getByName("debug") {
       isMinifyEnabled = false
       buildConfigField("boolean","INTEGRITY_GATE_ENABLED","false")
     }
   }
+
+  testBuildType = "releaseInstrumented"
 
   compileOptions {
     isCoreLibraryDesugaringEnabled = true
@@ -148,10 +162,16 @@ val releaseRuntimeClasspath by configurations.creating
 
 androidComponents {
   onVariants { variant ->
-    if (variant.name == "productionRelease") {
+    if (variant.name == "productionRelease" || variant.name == "productionReleaseInstrumented") {
       releaseRuntimeClasspath.extendsFrom(configurations.getByName("${variant.name}RuntimeClasspath"))
     }
   }
+}
+
+tasks.register("connectedProductionReleaseAndroidTest") {
+  group = "verification"
+  description = "Runs instrumentation tests against the productionReleaseInstrumented variant."
+  dependsOn("connectedProductionReleaseInstrumentedAndroidTest")
 }
 
 ksp { arg("room.generateKotlin", "true") }

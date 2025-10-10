@@ -1,7 +1,7 @@
 [versions]
 agp = "8.13.0"
-kotlin = "2.0.21"
-ksp = "2.0.21-1.0.27"
+kotlin = "2.1.0"
+ksp = "2.1.0-1.0.28"
 zxing = "3.5.3"
 okio = "3.7.0"
 
@@ -27,8 +27,8 @@ okhttp = "4.12.0"
 retrofit = "2.11.0"
 
 # Kotlin
-kotlin-bom = "2.0.21"
-kotlinx-coroutines = "1.9.0"
+kotlin-bom = "2.1.0"
+kotlinx-coroutines = "1.10.2"
 
 # DI / DB
 hilt = "2.51.1"

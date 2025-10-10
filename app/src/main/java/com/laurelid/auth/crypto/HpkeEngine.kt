@@ -2,6 +2,7 @@ package com.laurelid.auth.crypto
 
 import android.content.Context
 import android.content.pm.PackageManager
+import android.os.Build
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.security.keystore.StrongBoxUnavailableException
@@ -67,7 +68,8 @@ class AndroidHpkeKeyProvider @Inject constructor(
     private val debugKey = AtomicReference<X25519PrivateKeyParameters?>(null)
     private val lock = Mutex()
     private val strongBoxAvailable: Boolean by lazy {
-        context.packageManager.hasSystemFeature(PackageManager.FEATURE_STRONGBOX_KEYSTORE)
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.P &&
+            context.packageManager.hasSystemFeature(PackageManager.FEATURE_STRONGBOX_KEYSTORE)
     }
     private val strongBoxFallbackLogged = AtomicBoolean(false)
 
@@ -128,9 +130,15 @@ class AndroidHpkeKeyProvider @Inject constructor(
 
     private fun generate(alias: String): KeyPair {
         val generator = KeyPairGenerator.getInstance("XDH", ANDROID_KEYSTORE)
+        val purposes = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            KeyProperties.PURPOSE_AGREE_KEY or KeyProperties.PURPOSE_DECRYPT
+        } else {
+            KeyProperties.PURPOSE_DECRYPT
+        }
+
         val builder = KeyGenParameterSpec.Builder(
             alias,
-            KeyProperties.PURPOSE_AGREE_KEY or KeyProperties.PURPOSE_DECRYPT,
+            purposes,
         )
             .setDigests(KeyProperties.DIGEST_SHA256)
             .setAlgorithmParameterSpec(NamedParameterSpec("X25519"))

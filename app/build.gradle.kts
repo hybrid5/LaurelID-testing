@@ -80,6 +80,7 @@ android {
   lint {
     warningsAsErrors = true
     abortOnError = true
+    baseline = file("lint-baseline.xml")
   }
 
   testOptions {
@@ -239,12 +240,3 @@ tasks.register("printAnchors") {
   }
 }
 
-// --- added for COSE/CBOR/crypto ---
-dependencies {
-  implementation("com.augustcellars.cose:cose-java:1.1.0")
-  implementation("com.upokecenter:cbor:4.5.2")
-  implementation("org.bouncycastle:bcprov-jdk18on:1.78.1")
-  implementation("com.squareup.okio:okio:3.7.0")
-  // HPKE (needed for KEM_X25519_HKDF_SHA256/KDF_HKDF_SHA256/AEAD_AES_GCM_256)
-}
-// --- end added ---

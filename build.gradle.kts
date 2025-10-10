@@ -73,3 +73,18 @@ tasks.register("ciRelease") {
   description = "Assembles the release APK."
   dependsOn(":app:assembleRelease")
 }
+
+tasks.register("ciFast") {
+  group = "ci"
+  description = "Runs lint, unit tests, and assemble tasks with configuration cache enabled."
+  dependsOn(
+    ":app:lint",
+    ":app:testStagingDebugUnitTest",
+    ":app:assembleStagingDebug"
+  )
+  doFirst {
+    check(gradle.startParameter.isConfigurationCacheRequested) {
+      "Run ciFast with --configuration-cache (or org.gradle.configuration-cache=true) to keep CI fast."
+    }
+  }
+}

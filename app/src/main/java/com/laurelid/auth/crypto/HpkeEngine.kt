@@ -6,6 +6,7 @@ import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.security.keystore.StrongBoxUnavailableException
 import com.laurelid.BuildConfig
+import com.laurelid.util.Logger
 import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
 import java.security.KeyPair
@@ -16,6 +17,7 @@ import java.security.interfaces.XECPublicKey
 import java.security.spec.X509EncodedKeySpec
 import java.security.spec.NamedParameterSpec
 import java.time.Instant
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -67,6 +69,7 @@ class AndroidHpkeKeyProvider @Inject constructor(
     private val strongBoxAvailable: Boolean by lazy {
         context.packageManager.hasSystemFeature(PackageManager.FEATURE_STRONGBOX_KEYSTORE)
     }
+    private val strongBoxFallbackLogged = AtomicBoolean(false)
 
     override suspend fun ensureKey(alias: String) {
         lock.withLock {
@@ -131,14 +134,19 @@ class AndroidHpkeKeyProvider @Inject constructor(
         )
             .setDigests(KeyProperties.DIGEST_SHA256)
             .setAlgorithmParameterSpec(NamedParameterSpec("X25519"))
-            .setIsStrongBoxBacked(strongBoxAvailable)
             .setUserAuthenticationRequired(false)
 
-        val spec = try {
-            builder.build()
-        } catch (_: SecurityException) {
-            builder.setIsStrongBoxBacked(false).build()
-        } catch (_: StrongBoxUnavailableException) {
+        val spec = if (strongBoxAvailable) {
+            try {
+                builder.setIsStrongBoxBacked(true).build()
+            } catch (e: SecurityException) {
+                logStrongBoxFallback(e)
+                builder.setIsStrongBoxBacked(false).build()
+            } catch (e: StrongBoxUnavailableException) {
+                logStrongBoxFallback(e)
+                builder.setIsStrongBoxBacked(false).build()
+            }
+        } else {
             builder.setIsStrongBoxBacked(false).build()
         }
 
@@ -150,13 +158,22 @@ class AndroidHpkeKeyProvider @Inject constructor(
         return pair
     }
 
+    private fun logStrongBoxFallback(cause: Exception) {
+        if (strongBoxFallbackLogged.compareAndSet(false, true)) {
+            Logger.i(TAG, "StrongBox unavailable; falling back to AndroidKeyStore (${cause.javaClass.simpleName})")
+        }
+    }
+
     @Suppress("unused")
     private fun delete(alias: String) {
         if (keyStore.containsAlias(alias)) keyStore.deleteEntry(alias)
         cachedKeyPair.set(null); cachedAlias.set(null); debugKey.set(null)
     }
 
-    companion object { private const val ANDROID_KEYSTORE = "AndroidKeyStore" }
+    companion object {
+        private const val ANDROID_KEYSTORE = "AndroidKeyStore"
+        private const val TAG = "HpkeKeyProvider"
+    }
 }
 
 @Singleton
@@ -290,6 +307,7 @@ class BouncyCastleHpkeEngine @Inject constructor(
     ) : RecipientContext {
         private val key: SecretKeySpec
         private val baseNonce: ByteArray
+        private var sequence: ULong = 0u
 
         init {
             val sharedSecret = deriveSharedSecret(privateKey, encapsulatedKey)
@@ -299,11 +317,23 @@ class BouncyCastleHpkeEngine @Inject constructor(
         }
 
         override fun open(ciphertext: ByteArray, aad: ByteArray): ByteArray {
+            val nonce = nextNonce()
             val cipher = Cipher.getInstance(AES_GCM_NO_PADDING)
-            val spec = GCMParameterSpec(GCM_TAG_LENGTH_BITS, baseNonce)
+            val spec = GCMParameterSpec(GCM_TAG_LENGTH_BITS, nonce)
             cipher.init(Cipher.DECRYPT_MODE, key, spec)
             if (aad.isNotEmpty()) cipher.updateAAD(aad)
             return cipher.doFinal(ciphertext)
+        }
+
+        private fun nextNonce(): ByteArray {
+            check(sequence < MAX_SEQUENCE) { "HPKE nonce sequence overflow" }
+            val seqBytes = i2osp(sequence)
+            val result = ByteArray(baseNonce.size)
+            for (i in baseNonce.indices) {
+                result[i] = (baseNonce[i].toInt() xor seqBytes[i].toInt()).toByte()
+            }
+            sequence += 1u
+            return result
         }
     }
 
@@ -319,6 +349,7 @@ class BouncyCastleHpkeEngine @Inject constructor(
         private const val AES_256_KEY_LEN = 32
         private const val NONCE_LEN = 12
         private const val HASH_LEN = 32
+        private val MAX_SEQUENCE = ULong.MAX_VALUE
         private val HPKE_VERSION = "HPKE-v1".encodeToByteArray()
         private val SUITE_ID = buildSuiteId()
 
@@ -419,6 +450,16 @@ class BouncyCastleHpkeEngine @Inject constructor(
             }
             return result
         }
+
+        private fun i2osp(value: ULong): ByteArray {
+            val result = ByteArray(NONCE_LEN)
+            var current = value
+            for (i in 0 until Long.SIZE_BYTES) {
+                result[NONCE_LEN - 1 - i] = (current and 0xFFu).toByte()
+                current = current shr 8
+            }
+            return result
+        }
     }
 }
 
@@ -451,14 +492,14 @@ data class HpkeEnvelope(val encapsulatedKey: ByteArray, val ciphertext: ByteArra
 }
 
 class InMemoryHpkeKeyProvider(private val privateKey: X25519PrivateKeyParameters) : HpkeKeyProvider {
-    private val publicKeyBytes: ByteArray by lazy {
+    private val cachedPublicKey: ByteArray by lazy {
         val public = ByteArray(X25519PrivateKeyParameters.KEY_SIZE)
         privateKey.generatePublicKey().encode(public, 0)
         public
     }
 
     override suspend fun ensureKey(alias: String) = Unit
-    override fun getPublicKeyBytes(): ByteArray = publicKeyBytes.copyOf()
+    override fun getPublicKeyBytes(): ByteArray = cachedPublicKey.copyOf()
     override fun getPrivateKeyHandle(): HpkePrivateKeyHandle = HpkePrivateKeyHandle.Debug(privateKey)
     override fun installDebugKey(alias: String, privateKey: ByteArray) = Unit
 }

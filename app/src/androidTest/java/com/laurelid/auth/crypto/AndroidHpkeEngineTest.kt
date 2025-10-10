@@ -1,10 +1,15 @@
 package com.laurelid.auth.crypto
 
 import android.content.Context
+import android.os.ParcelFileDescriptor
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
 import java.security.KeyStore
+import kotlin.text.Regex
 import kotlin.test.assertContentEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
 import org.bouncycastle.crypto.hpke.HPKE
@@ -40,21 +45,25 @@ class AndroidHpkeEngineTest {
 
     @Test
     fun decryptsCiphertextWithKeystoreHandle() = runBlocking {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
         val provider = AndroidHpkeKeyProvider(context)
         provider.ensureKey(alias)
         val engine = BouncyCastleHpkeEngine(provider)
-        val config = HpkeConfig.default()
         val hpke = HPKE.create(
             HPKE.KEM_X25519_HKDF_SHA256,
             HPKE.KDF_HKDF_SHA256,
             HPKE.AEAD_AES_GCM_256,
         )
+        instrumentation.uiAutomation.executeShellCommand("logcat -c").closeQuietly()
+
         val aad = "instrumented-aad".encodeToByteArray()
         val plaintext = "hpke strongbox".encodeToByteArray()
+        val publicKeyBytes = provider.getPublicKeyBytes()
+        assertEquals(32, publicKeyBytes.size)
         val sender = hpke.createSenderContext(
-            X25519PublicKeyParameters(provider.getPublicKeyBytes(), 0),
+            X25519PublicKeyParameters(publicKeyBytes, 0),
             ByteArray(0),
-            config.info,
+            ByteArray(0),
             aad,
         )
         val ciphertext = sender.seal(plaintext, aad)
@@ -62,6 +71,12 @@ class AndroidHpkeEngineTest {
 
         val decrypted = engine.decrypt(envelope.toByteArray(), aad)
         assertContentEquals(plaintext.toList(), decrypted.toList())
+
+        val logDescriptor = instrumentation.uiAutomation.executeShellCommand("logcat -d -v raw LaurelID:I *:S")
+        val logs = readLogs(logDescriptor)
+        val privateMaterialPattern = Regex("\\b[0-9a-fA-F]{32,}\\b")
+        assertTrue(logs.lines().filter { it.contains("LaurelID:HpkeKeyProvider") }.size <= 1)
+        assertFalse(privateMaterialPattern.containsMatchIn(logs))
     }
 
     @Test
@@ -70,5 +85,22 @@ class AndroidHpkeEngineTest {
         provider.ensureKey(alias)
         val handle = provider.getPrivateKeyHandle()
         assertTrue(handle is HpkePrivateKeyHandle.AndroidKeyStore)
+    }
+}
+
+private fun ParcelFileDescriptor.closeQuietly() {
+    try {
+        close()
+    } catch (_: Exception) {
+    }
+}
+
+private fun readLogs(fd: ParcelFileDescriptor): String {
+    return try {
+        ParcelFileDescriptor.AutoCloseInputStream(fd).use { stream ->
+            stream.bufferedReader().use { it.readText() }
+        }
+    } finally {
+        fd.closeQuietly()
     }
 }

@@ -1,22 +1,33 @@
 package com.laurelid.auth.crypto
 
+import android.content.Context
+import android.content.pm.PackageManager
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
+import android.security.keystore.StrongBoxUnavailableException
 import com.laurelid.BuildConfig
+import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
 import java.security.KeyPair
 import java.security.KeyPairGenerator
 import java.security.KeyStore
-import java.security.interfaces.XECPrivateKey
+import java.security.PrivateKey
 import java.security.interfaces.XECPublicKey
+import java.security.spec.X509EncodedKeySpec
 import java.security.spec.NamedParameterSpec
 import java.time.Instant
-import java.util.Optional
 import java.util.concurrent.atomic.AtomicReference
 import javax.inject.Inject
 import javax.inject.Singleton
+import javax.crypto.Cipher
+import javax.crypto.KeyAgreement
+import javax.crypto.Mac
+import javax.crypto.spec.GCMParameterSpec
+import javax.crypto.spec.SecretKeySpec
+import kotlin.math.min
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import dagger.hilt.android.qualifiers.ApplicationContext
 import org.bouncycastle.crypto.params.AsymmetricKeyParameter
 import org.bouncycastle.crypto.params.X25519PrivateKeyParameters
 
@@ -34,41 +45,50 @@ interface HpkeEngine {
 interface HpkeKeyProvider {
     suspend fun ensureKey(alias: String)
     fun getPublicKeyBytes(): ByteArray
-    fun getPrivateKeyParameters(): AsymmetricKeyParameter
+    fun getPrivateKeyHandle(): HpkePrivateKeyHandle
     fun installDebugKey(alias: String, privateKey: ByteArray)
 }
 
+sealed interface HpkePrivateKeyHandle {
+    data class AndroidKeyStore(val privateKey: PrivateKey) : HpkePrivateKeyHandle
+    data class Debug(val parameters: X25519PrivateKeyParameters) : HpkePrivateKeyHandle
+}
+
 @Singleton
-class AndroidHpkeKeyProvider @Inject constructor() : HpkeKeyProvider {
+class AndroidHpkeKeyProvider @Inject constructor(
+    @ApplicationContext private val context: Context,
+) : HpkeKeyProvider {
 
     private val keyStore: KeyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
     private val cachedAlias = AtomicReference<String?>(null)
     private val cachedKeyPair = AtomicReference<KeyPair?>()
-    private val debugScalar = AtomicReference<ByteArray?>(null)
+    private val debugKey = AtomicReference<X25519PrivateKeyParameters?>(null)
     private val lock = Mutex()
+    private val strongBoxAvailable: Boolean by lazy {
+        context.packageManager.hasSystemFeature(PackageManager.FEATURE_STRONGBOX_KEYSTORE)
+    }
 
     override suspend fun ensureKey(alias: String) {
         lock.withLock {
             val currentAlias = cachedAlias.get()
-            if (currentAlias == alias && (cachedKeyPair.get() != null || debugScalar.get() != null)) return
+            if (currentAlias == alias && (cachedKeyPair.get() != null || debugKey.get() != null)) return
             val existing = keyStore.getEntry(alias, null) as? KeyStore.PrivateKeyEntry
             if (existing != null) {
                 cachedAlias.set(alias)
                 cachedKeyPair.set(KeyPair(existing.certificate.publicKey, existing.privateKey))
-                debugScalar.set(null)
+                debugKey.set(null)
                 return
             }
             cachedKeyPair.set(generate(alias))
             cachedAlias.set(alias)
-            debugScalar.set(null)
+            debugKey.set(null)
         }
     }
 
     override fun getPublicKeyBytes(): ByteArray {
-        debugScalar.get()?.let { scalar ->
-            val privateKey = X25519PrivateKeyParameters(scalar, 0)
+        debugKey.get()?.let { key ->
             val public = ByteArray(X25519PrivateKeyParameters.KEY_SIZE)
-            privateKey.generatePublicKey().encode(public, 0)
+            key.generatePublicKey().encode(public, 0)
             return public
         }
         val keyPair = cachedKeyPair.get() ?: error("HPKE key has not been initialised")
@@ -84,12 +104,10 @@ class AndroidHpkeKeyProvider @Inject constructor() : HpkeKeyProvider {
         }
     }
 
-    override fun getPrivateKeyParameters(): AsymmetricKeyParameter {
-        debugScalar.get()?.let { return X25519PrivateKeyParameters(it, 0) }
+    override fun getPrivateKeyHandle(): HpkePrivateKeyHandle {
+        debugKey.get()?.let { return HpkePrivateKeyHandle.Debug(it) }
         val keyPair = cachedKeyPair.get() ?: error("HPKE key has not been initialised")
-        val privateKey = keyPair.private as? XECPrivateKey ?: error("HPKE private key must be X25519")
-        val scalar = extractScalar(privateKey)
-        return X25519PrivateKeyParameters(scalar, 0)
+        return HpkePrivateKeyHandle.AndroidKeyStore(keyPair.private)
     }
 
     override fun installDebugKey(alias: String, privateKey: ByteArray) {
@@ -99,7 +117,7 @@ class AndroidHpkeKeyProvider @Inject constructor() : HpkeKeyProvider {
         try {
             cachedKeyPair.set(null)
             cachedAlias.set(alias)
-            debugScalar.set(privateKey.copyOf())
+            debugKey.set(X25519PrivateKeyParameters(privateKey.copyOf(), 0))
         } finally {
             lock.unlock()
         }
@@ -113,10 +131,14 @@ class AndroidHpkeKeyProvider @Inject constructor() : HpkeKeyProvider {
         )
             .setDigests(KeyProperties.DIGEST_SHA256)
             .setAlgorithmParameterSpec(NamedParameterSpec("X25519"))
-            .setIsStrongBoxBacked(true)
+            .setIsStrongBoxBacked(strongBoxAvailable)
             .setUserAuthenticationRequired(false)
 
-        val spec = try { builder.build() } catch (_: SecurityException) {
+        val spec = try {
+            builder.build()
+        } catch (_: SecurityException) {
+            builder.setIsStrongBoxBacked(false).build()
+        } catch (_: StrongBoxUnavailableException) {
             builder.setIsStrongBoxBacked(false).build()
         }
 
@@ -124,14 +146,14 @@ class AndroidHpkeKeyProvider @Inject constructor() : HpkeKeyProvider {
         val pair = generator.generateKeyPair()
         cachedKeyPair.set(pair)
         cachedAlias.set(alias)
-        debugScalar.set(null)
+        debugKey.set(null)
         return pair
     }
 
     @Suppress("unused")
     private fun delete(alias: String) {
         if (keyStore.containsAlias(alias)) keyStore.deleteEntry(alias)
-        cachedKeyPair.set(null); cachedAlias.set(null); debugScalar.set(null)
+        cachedKeyPair.set(null); cachedAlias.set(null); debugKey.set(null)
     }
 
     companion object { private const val ANDROID_KEYSTORE = "AndroidKeyStore" }
@@ -211,13 +233,192 @@ class BouncyCastleHpkeEngine @Inject constructor(
     override fun decrypt(cipher: ByteArray, aad: ByteArray): SecureBytes {
         check(initialised) { "HPKE recipient not initialised" }
         val envelope = HpkeEnvelope.parse(cipher)
-        val ctx = Hpke.createRecipient(
-            keyProvider.getPrivateKeyParameters(),
+        val ctx = createRecipient(
+            keyProvider.getPrivateKeyHandle(),
             envelope.encapsulatedKey,
             config.info,
             aad,
         )
-        return Hpke.open(ctx, envelope.ciphertext, aad)
+        return ctx.open(envelope.ciphertext, aad)
+    }
+
+    private fun createRecipient(
+        handle: HpkePrivateKeyHandle,
+        encapsulatedKey: ByteArray,
+        info: ByteArray,
+        aad: ByteArray,
+    ): RecipientContext {
+        return when (handle) {
+            is HpkePrivateKeyHandle.Debug -> BcRecipientContext(
+                privateKey = handle.parameters,
+                encapsulatedKey = encapsulatedKey,
+                info = info,
+                aad = aad,
+            )
+            is HpkePrivateKeyHandle.AndroidKeyStore -> KeystoreRecipientContext(
+                privateKey = handle.privateKey,
+                encapsulatedKey = encapsulatedKey,
+                info = info,
+            )
+        }
+    }
+
+    private interface RecipientContext {
+        fun open(ciphertext: ByteArray, aad: ByteArray): ByteArray
+    }
+
+    private class BcRecipientContext(
+        private val privateKey: X25519PrivateKeyParameters,
+        encapsulatedKey: ByteArray,
+        info: ByteArray,
+        aad: ByteArray,
+    ) : RecipientContext {
+        private val ctx: Any
+
+        init {
+            ctx = Hpke.createRecipient(privateKey, encapsulatedKey, info, aad)
+        }
+
+        override fun open(ciphertext: ByteArray, aad: ByteArray): ByteArray =
+            Hpke.open(ctx, ciphertext, aad)
+    }
+
+    private class KeystoreRecipientContext(
+        private val privateKey: PrivateKey,
+        encapsulatedKey: ByteArray,
+        info: ByteArray,
+    ) : RecipientContext {
+        private val key: SecretKeySpec
+        private val baseNonce: ByteArray
+
+        init {
+            val sharedSecret = deriveSharedSecret(privateKey, encapsulatedKey)
+            val schedule = HpkeKeySchedule(sharedSecret, info)
+            key = SecretKeySpec(schedule.key, "AES")
+            baseNonce = schedule.baseNonce
+        }
+
+        override fun open(ciphertext: ByteArray, aad: ByteArray): ByteArray {
+            val cipher = Cipher.getInstance(AES_GCM_NO_PADDING)
+            val spec = GCMParameterSpec(GCM_TAG_LENGTH_BITS, baseNonce)
+            cipher.init(Cipher.DECRYPT_MODE, key, spec)
+            if (aad.isNotEmpty()) cipher.updateAAD(aad)
+            return cipher.doFinal(ciphertext)
+        }
+    }
+
+    private data class HpkeKeySchedule(val key: ByteArray, val baseNonce: ByteArray)
+
+    private companion object {
+        private const val AES_GCM_NO_PADDING = "AES/GCM/NoPadding"
+        private const val GCM_TAG_LENGTH_BITS = 128
+        private const val MODE_BASE = 0
+        private const val KEM_ID = 0x0020
+        private const val KDF_ID = 0x0001
+        private const val AEAD_ID = 0x0002
+        private const val AES_256_KEY_LEN = 32
+        private const val NONCE_LEN = 12
+        private const val HASH_LEN = 32
+        private val HPKE_VERSION = "HPKE-v1".encodeToByteArray()
+        private val SUITE_ID = buildSuiteId()
+
+        private fun buildSuiteId(): ByteArray {
+            val buffer = ByteArrayOutputStream()
+            buffer.write("HPKE".encodeToByteArray())
+            buffer.write(i2osp(KEM_ID, 2))
+            buffer.write(i2osp(KDF_ID, 2))
+            buffer.write(i2osp(AEAD_ID, 2))
+            return buffer.toByteArray()
+        }
+
+        private fun deriveSharedSecret(privateKey: PrivateKey, peerPublic: ByteArray): ByteArray {
+            val publicKey = decodeX25519PublicKey(peerPublic)
+            val keyAgreement = try {
+                KeyAgreement.getInstance("X25519")
+            } catch (_: Exception) {
+                KeyAgreement.getInstance("XDH")
+            }
+            keyAgreement.init(privateKey)
+            keyAgreement.doPhase(publicKey, true)
+            return keyAgreement.generateSecret()
+        }
+
+        private fun decodeX25519PublicKey(raw: ByteArray) = run {
+            require(raw.size == X25519PrivateKeyParameters.KEY_SIZE) { "Invalid encapsulated key" }
+            val prefix = byteArrayOf(
+                0x30, 0x2a, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x6e, 0x03, 0x21, 0x00,
+            )
+            val encoded = ByteArray(prefix.size + raw.size)
+            System.arraycopy(prefix, 0, encoded, 0, prefix.size)
+            System.arraycopy(raw, 0, encoded, prefix.size, raw.size)
+            val spec = X509EncodedKeySpec(encoded)
+            val factory = try {
+                java.security.KeyFactory.getInstance("X25519")
+            } catch (_: Exception) {
+                java.security.KeyFactory.getInstance("XDH")
+            }
+            factory.generatePublic(spec)
+        }
+
+        private fun HpkeKeySchedule(sharedSecret: ByteArray, info: ByteArray): HpkeKeySchedule {
+            val zeroSalt = ByteArray(0)
+            val psk = ByteArray(0)
+            val pskId = ByteArray(0)
+            val pskIdHash = labeledExtract(zeroSalt, "psk_id_hash", pskId)
+            val infoHash = labeledExtract(zeroSalt, "info_hash", info)
+            val keyScheduleContext = byteArrayOf(MODE_BASE.toByte()) + pskIdHash + infoHash
+            val secret = labeledExtract(sharedSecret, "secret", psk)
+            val key = labeledExpand(secret, "key", keyScheduleContext, AES_256_KEY_LEN)
+            val baseNonce = labeledExpand(secret, "base_nonce", keyScheduleContext, NONCE_LEN)
+            return HpkeKeySchedule(key, baseNonce)
+        }
+
+        private fun labeledExtract(salt: ByteArray, label: String, ikm: ByteArray): ByteArray {
+            val labeledIkm = HPKE_VERSION + SUITE_ID + label.encodeToByteArray() + ikm
+            return hkdfExtract(salt, labeledIkm)
+        }
+
+        private fun labeledExpand(prk: ByteArray, label: String, info: ByteArray, length: Int): ByteArray {
+            val labeledInfo = i2osp(length, 2) + HPKE_VERSION + SUITE_ID + label.encodeToByteArray() + info
+            return hkdfExpand(prk, labeledInfo, length)
+        }
+
+        private fun hkdfExtract(salt: ByteArray, ikm: ByteArray): ByteArray {
+            val mac = Mac.getInstance("HmacSHA256")
+            val actualSalt = if (salt.isEmpty()) ByteArray(HASH_LEN) else salt
+            mac.init(SecretKeySpec(actualSalt, "HmacSHA256"))
+            return mac.doFinal(ikm)
+        }
+
+        private fun hkdfExpand(prk: ByteArray, info: ByteArray, length: Int): ByteArray {
+            val mac = Mac.getInstance("HmacSHA256")
+            mac.init(SecretKeySpec(prk, "HmacSHA256"))
+            var previous = ByteArray(0)
+            val result = ByteArray(length)
+            var offset = 0
+            var counter = 1
+            while (offset < length) {
+                mac.reset()
+                if (previous.isNotEmpty()) mac.update(previous)
+                mac.update(info)
+                mac.update(counter.toByte())
+                previous = mac.doFinal()
+                val toCopy = min(previous.size, length - offset)
+                System.arraycopy(previous, 0, result, offset, toCopy)
+                offset += toCopy
+                counter++
+            }
+            return result
+        }
+
+        private fun i2osp(value: Int, length: Int): ByteArray {
+            require(length in 1..4) { "Unsupported length" }
+            val result = ByteArray(length)
+            for (i in 0 until length) {
+                result[length - 1 - i] = (value shr (8 * i) and 0xFF).toByte()
+            }
+            return result
+        }
     }
 }
 
@@ -249,28 +450,17 @@ data class HpkeEnvelope(val encapsulatedKey: ByteArray, val ciphertext: ByteArra
     }
 }
 
-class InMemoryHpkeKeyProvider(private val keyPair: KeyPair) : HpkeKeyProvider {
-    override suspend fun ensureKey(alias: String) = Unit
-    override fun getPublicKeyBytes(): ByteArray = (keyPair.public as XECPublicKey).u.toByteArray()
-    override fun getPrivateKeyParameters(): AsymmetricKeyParameter {
-        val privateKey = keyPair.private as XECPrivateKey
-        val scalar = extractScalar(privateKey)
-        return X25519PrivateKeyParameters(scalar, 0)
+class InMemoryHpkeKeyProvider(private val privateKey: X25519PrivateKeyParameters) : HpkeKeyProvider {
+    private val publicKeyBytes: ByteArray by lazy {
+        val public = ByteArray(X25519PrivateKeyParameters.KEY_SIZE)
+        privateKey.generatePublicKey().encode(public, 0)
+        public
     }
+
+    override suspend fun ensureKey(alias: String) = Unit
+    override fun getPublicKeyBytes(): ByteArray = publicKeyBytes.copyOf()
+    override fun getPrivateKeyHandle(): HpkePrivateKeyHandle = HpkePrivateKeyHandle.Debug(privateKey)
     override fun installDebugKey(alias: String, privateKey: ByteArray) = Unit
 }
 
 data class HpkeKeyMetadata(val alias: String, val createdAt: Instant)
-
-private fun extractScalar(privateKey: XECPrivateKey): ByteArray {
-    val scalarValue: Any? = privateKey.scalar
-    return when (scalarValue) {
-        is ByteArray -> scalarValue
-        is Optional<*> -> {
-            val bytes = scalarValue.orElseThrow { IllegalStateException("Missing scalar in XECPrivateKey") }
-            bytes as? ByteArray ?: throw IllegalStateException("Unexpected scalar representation: ${bytes?.javaClass?.name}")
-        }
-        null -> throw IllegalStateException("Missing scalar in XECPrivateKey")
-        else -> throw IllegalStateException("Unexpected scalar representation: ${scalarValue.javaClass.name}")
-    }
-}

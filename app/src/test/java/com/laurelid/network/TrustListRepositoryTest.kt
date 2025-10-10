@@ -43,6 +43,7 @@ class TrustListRepositoryTest {
                 dir,
                 defaultMaxAgeMillis = 10_000L,
                 manifestVerifier = manifestVerifier,
+                allowPlaintextCacheForTests = true,
             )
 
             val snapshot = repository.getOrRefresh(nowMillis = 0L)
@@ -63,6 +64,7 @@ class TrustListRepositoryTest {
                 dir,
                 defaultMaxAgeMillis = 10_000L,
                 manifestVerifier = manifestVerifier,
+                allowPlaintextCacheForTests = true,
             )
 
             repository.getOrRefresh(nowMillis = 0L)
@@ -85,6 +87,7 @@ class TrustListRepositoryTest {
                 defaultStaleTtlMillis = 5_000L,
                 delayProvider = { _ -> },
                 manifestVerifier = manifestVerifier,
+                allowPlaintextCacheForTests = true,
             )
 
             repository.getOrRefresh(nowMillis = 0L)
@@ -111,6 +114,7 @@ class TrustListRepositoryTest {
                 defaultStaleTtlMillis = 2_000L,
                 delayProvider = { _ -> },
                 manifestVerifier = manifestVerifier,
+                allowPlaintextCacheForTests = true,
             )
 
             repository.getOrRefresh(nowMillis = 0L)
@@ -132,6 +136,7 @@ class TrustListRepositoryTest {
                 defaultMaxAgeMillis = 1_000L,
                 defaultStaleTtlMillis = 2_000L,
                 manifestVerifier = manifestVerifier,
+                allowPlaintextCacheForTests = true,
             )
 
             repository.getOrRefresh(nowMillis = 0L)
@@ -156,6 +161,7 @@ class TrustListRepositoryTest {
                 defaultStaleTtlMillis = 5_000L,
                 delayProvider = { _ -> },
                 manifestVerifier = manifestVerifier,
+                allowPlaintextCacheForTests = true,
             )
 
             repository.getOrRefresh(nowMillis = 0L)
@@ -184,6 +190,7 @@ class TrustListRepositoryTest {
                 defaultStaleTtlMillis = 0L,
                 delayProvider = { _ -> },
                 manifestVerifier = manifestVerifier,
+                allowPlaintextCacheForTests = true,
             )
 
             repository.getOrRefresh(nowMillis = 0L)
@@ -210,6 +217,7 @@ class TrustListRepositoryTest {
                 defaultMaxAgeMillis = 1_000L,
                 delayProvider = { _ -> },
                 manifestVerifier = manifestVerifier,
+                allowPlaintextCacheForTests = true,
             )
 
             assertFailsWith<IOException> {
@@ -264,6 +272,7 @@ class TrustListRepositoryTest {
                 dir,
                 defaultMaxAgeMillis = 10_000L,
                 manifestVerifier = manifestVerifier,
+                allowPlaintextCacheForTests = true,
             )
             repository.getOrRefresh(nowMillis = 0L)
             assertEquals(1, initialApi.callCount)
@@ -275,6 +284,7 @@ class TrustListRepositoryTest {
                 dir,
                 defaultMaxAgeMillis = 10_000L,
                 manifestVerifier = manifestVerifier,
+                allowPlaintextCacheForTests = true,
             )
 
             val snapshot = coldRepository.getOrRefresh(nowMillis = 5_000L, maxAgeMillis = 10_000L)
@@ -296,6 +306,7 @@ class TrustListRepositoryTest {
                 defaultMaxAgeMillis = 10_000L,
                 delayProvider = { _ -> },
                 manifestVerifier = manifestVerifier,
+                allowPlaintextCacheForTests = true,
             )
 
             val snapshot = repository.getOrRefresh(nowMillis = 0L)
@@ -320,6 +331,7 @@ class TrustListRepositoryTest {
                 dir,
                 defaultMaxAgeMillis = 10_000L,
                 manifestVerifier = manifestVerifier,
+                allowPlaintextCacheForTests = true,
             )
 
             val initial = repository.getOrRefresh(nowMillis = 0L)
@@ -350,6 +362,7 @@ class TrustListRepositoryTest {
                 dir,
                 defaultMaxAgeMillis = 10_000L,
                 manifestVerifier = manifestVerifier,
+                allowPlaintextCacheForTests = true,
             )
 
             val snapshot = repository.getOrRefresh(nowMillis = 0L)
@@ -362,6 +375,7 @@ class TrustListRepositoryTest {
                 dir,
                 defaultMaxAgeMillis = 10_000L,
                 manifestVerifier = manifestVerifier,
+                allowPlaintextCacheForTests = true,
             )
 
             val cached = coldRepository.getOrRefresh(nowMillis = 5_000L, maxAgeMillis = 10_000L)
@@ -380,6 +394,7 @@ class TrustListRepositoryTest {
                 defaultStaleTtlMillis = 2_000L,
                 delayProvider = { _ -> },
                 manifestVerifier = manifestVerifier,
+                allowPlaintextCacheForTests = true,
             )
 
             repository.getOrRefresh(nowMillis = 0L)
@@ -405,6 +420,7 @@ class TrustListRepositoryTest {
                 defaultMaxAgeMillis = 10_000L,
                 manifestVerifier = manifestVerifier,
                 initialBaseUrl = TrustListEndpointPolicy.defaultBaseUrl,
+                allowPlaintextCacheForTests = true,
             )
 
             repository.getOrRefresh(nowMillis = 0L)
@@ -424,6 +440,7 @@ class TrustListRepositoryTest {
                 defaultMaxAgeMillis = 10_000L,
                 manifestVerifier = manifestVerifier,
                 initialBaseUrl = TrustListEndpointPolicy.defaultBaseUrl,
+                allowPlaintextCacheForTests = true,
             )
 
             assertFailsWith<IOException> {
@@ -442,6 +459,7 @@ class TrustListRepositoryTest {
                 defaultMaxAgeMillis = 10_000L,
                 manifestVerifier = manifestVerifier,
                 initialBaseUrl = TrustListEndpointPolicy.defaultBaseUrl,
+                allowPlaintextCacheForTests = true,
             )
 
             repository.getOrRefresh(nowMillis = 0L)
@@ -459,6 +477,7 @@ class TrustListRepositoryTest {
                 defaultMaxAgeMillis = 10_000L,
                 manifestVerifier = manifestVerifier,
                 initialBaseUrl = TrustListEndpointPolicy.defaultBaseUrl,
+                allowPlaintextCacheForTests = true,
             )
 
             assertFailsWith<IOException> {
@@ -477,6 +496,7 @@ class TrustListRepositoryTest {
                 defaultMaxAgeMillis = 10_000L,
                 manifestVerifier = manifestVerifier,
                 initialBaseUrl = TrustListEndpointPolicy.defaultBaseUrl,
+                allowPlaintextCacheForTests = true,
             )
 
             repository.getOrRefresh(nowMillis = 0L)
@@ -494,6 +514,7 @@ class TrustListRepositoryTest {
                 defaultMaxAgeMillis = 10_000L,
                 manifestVerifier = manifestVerifier,
                 initialBaseUrl = TrustListEndpointPolicy.defaultBaseUrl,
+                allowPlaintextCacheForTests = true,
             )
 
             assertFailsWith<IOException> {
@@ -512,6 +533,7 @@ class TrustListRepositoryTest {
                 defaultMaxAgeMillis = 10_000L,
                 manifestVerifier = manifestVerifier,
                 initialBaseUrl = TrustListEndpointPolicy.defaultBaseUrl,
+                allowPlaintextCacheForTests = true,
             )
 
             repository.getOrRefresh(nowMillis = 0L)
@@ -528,6 +550,7 @@ class TrustListRepositoryTest {
                 defaultMaxAgeMillis = 10_000L,
                 manifestVerifier = manifestVerifier,
                 initialBaseUrl = TrustListEndpointPolicy.defaultBaseUrl,
+                allowPlaintextCacheForTests = true,
             )
 
             assertFailsWith<IOException> {

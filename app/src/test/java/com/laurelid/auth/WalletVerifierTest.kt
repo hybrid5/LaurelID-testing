@@ -38,6 +38,7 @@ class WalletVerifierTest {
                 MapBackedTrustListApi(mapOf(scenario.issuer to scenario.certificateBase64)),
                 dir,
                 manifestVerifier = manifestVerifier,
+                allowPlaintextCacheForTests = true,
             )
             val verifierService = VerifierService(repository, clock)
             val verifier = WalletVerifier(verifierService)
@@ -62,6 +63,7 @@ class WalletVerifierTest {
                 MapBackedTrustListApi(mapOf(scenario.issuer to scenario.certificateBase64)),
                 dir,
                 manifestVerifier = manifestVerifier,
+                allowPlaintextCacheForTests = true,
             )
             val verifierService = VerifierService(repository, clock)
             val verifier = WalletVerifier(verifierService)
@@ -87,6 +89,7 @@ class WalletVerifierTest {
                 MapBackedTrustListApi(mapOf(scenario.issuer to scenario.certificateBase64)),
                 dir,
                 manifestVerifier = manifestVerifier,
+                allowPlaintextCacheForTests = true,
             )
             val verifierService = VerifierService(repository, clock)
             val verifier = WalletVerifier(verifierService)
@@ -112,6 +115,7 @@ class WalletVerifierTest {
                 MapBackedTrustListApi(mapOf(scenario.issuer to scenario.certificateBase64)),
                 dir,
                 manifestVerifier = manifestVerifier,
+                allowPlaintextCacheForTests = true,
             )
             val verifierService = VerifierService(repository, clock)
             val verifier = WalletVerifier(verifierService)
@@ -136,6 +140,7 @@ class WalletVerifierTest {
                 MapBackedTrustListApi(mapOf("OtherIssuer" to scenario.certificateBase64)),
                 dir,
                 manifestVerifier = manifestVerifier,
+            allowPlaintextCacheForTests = true,
             )
             val verifierService = VerifierService(repository, clock)
             val verifier = WalletVerifier(verifierService)

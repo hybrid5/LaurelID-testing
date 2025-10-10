@@ -59,46 +59,49 @@ class SessionManager @Inject constructor(
 
     suspend fun decryptAndVerify(session: ActiveSession, ciphertext: ByteArray): VerificationResult = mutex.withLock {
         check(activeSession == session) { "Session is no longer active" }
-        val transcript = buildTranscript(session)
-        val plaintext = hpkeEngine.decrypt(ciphertext, session.engagement.transcript)
-        val response = parseDeviceResponse(plaintext)
+        try {
+            val transcript = buildTranscript(session)
+            val plaintext = hpkeEngine.decrypt(ciphertext, session.engagement.transcript)
+            val response = parseDeviceResponse(plaintext)
 
-        val roots = try {
-            trustStore.loadIacaRoots()
-        } catch (error: TrustAnchorsUnavailable) {
-            throw VerificationError.IssuerTrustUnavailable("No IACA trust anchors configured", error)
+            val roots = try {
+                trustStore.loadIacaRoots()
+            } catch (error: TrustAnchorsUnavailable) {
+                throw VerificationError.IssuerTrustUnavailable("No IACA trust anchors configured", error)
+            }
+
+            val issuer: VerifiedIssuer = coseVerifier.verifyIssuer(
+                response.issuerSigned,
+                roots,
+                clock.instant(),
+            )
+
+            val chainOk = if (!VerifierFeatureFlags.devProfileMode && response.deviceCertificates.isNotEmpty()) {
+                trustStore.verifyChain(response.deviceCertificates, listOf(issuer.signerCert), clock.instant())
+            } else {
+                true
+            }
+            if (!chainOk) throw VerificationError.DeviceCertUntrusted("device chain not anchored to IACA")
+
+            val deviceSignatureValid = coseVerifier.verifyDeviceSignature(
+                response.deviceSignature,
+                transcript,
+                response.deviceCertificates,
+            )
+
+            val minimized = presentationBuilder.minimize(issuer.claims)
+            val result = VerificationResult(
+                isSuccess = deviceSignatureValid,
+                minimalClaims = minimized,
+                portrait = issuer.claims[PORTRAIT_KEY] as? ByteArray,
+                audit = buildAuditEntries(issuer, deviceSignatureValid, minimized.keys),
+            )
+
+            Logger.i(TAG, "Verification completed success=$deviceSignatureValid")
+            result
+        } finally {
+            cleanup()
         }
-
-        val issuer: VerifiedIssuer = coseVerifier.verifyIssuer(
-            response.issuerSigned,
-            roots,
-            clock.instant(),
-        )
-
-        val chainOk = if (!VerifierFeatureFlags.devProfileMode && response.deviceCertificates.isNotEmpty()) {
-            trustStore.verifyChain(response.deviceCertificates, listOf(issuer.signerCert), clock.instant())
-        } else {
-            true
-        }
-        if (!chainOk) throw VerificationError.DeviceCertUntrusted("device chain not anchored to IACA")
-
-        val deviceSignatureValid = coseVerifier.verifyDeviceSignature(
-            response.deviceSignature,
-            transcript,
-            response.deviceCertificates,
-        )
-
-        val minimized = presentationBuilder.minimize(issuer.claims)
-        val result = VerificationResult(
-            isSuccess = deviceSignatureValid,
-            minimalClaims = minimized,
-            portrait = issuer.claims[PORTRAIT_KEY] as? ByteArray,
-            audit = buildAuditEntries(issuer, deviceSignatureValid, minimized.keys),
-        )
-
-        if (deviceSignatureValid) cleanup()
-        Logger.i(TAG, "Verification completed success=$deviceSignatureValid")
-        result
     }
 
     fun buildTranscript(session: ActiveSession): ByteArray {

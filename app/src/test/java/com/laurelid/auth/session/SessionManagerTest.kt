@@ -9,8 +9,10 @@ import com.laurelid.auth.crypto.SecureBytes
 import com.laurelid.auth.deviceengagement.TransportType
 import com.laurelid.auth.trust.TrustStore
 import com.laurelid.auth.verifier.PresentationRequestBuilder
+import com.laurelid.auth.session.VerificationError
 import io.mockk.coEvery
 import io.mockk.coJustRun
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import java.math.BigInteger
@@ -99,6 +101,88 @@ class SessionManagerTest {
 
         val failure = sessionManager.decryptAndVerify(tampered, deviceResponse.copyOf())
         assertFalse(failure.isSuccess)
+    }
+
+    @Test
+    fun `failed verification closes transports`() = runTest {
+        val keyPair = KeyPairGenerator.getInstance("EC").apply { initialize(256) }.generateKeyPair()
+        val certificate = selfSignedCertificate(keyPair)
+        val deviceResponse = deviceResponse(certificate)
+
+        coJustRun { hpkeEngine.initRecipient(any()) }
+        coJustRun { keyProvider.ensureKey(any()) }
+        every { keyProvider.getPublicKeyBytes() } returns ByteArray(32) { 7 }
+        every { presentationBuilder.requestedAttributes() } returns emptyList()
+        every { presentationBuilder.minimize(any()) } returns emptyMap()
+        every { webTransport.stage(any()) } returns Unit
+        coEvery { webTransport.start(any()) } returns EngagementSession("session", "payload".encodeToByteArray())
+        coJustRun { webTransport.stop() }
+        coEvery { nfcTransport.start(any()) } returns EngagementSession("nfc", ByteArray(0))
+        coJustRun { nfcTransport.stop() }
+        coEvery { bleTransport.start(any()) } returns EngagementSession("ble", ByteArray(0))
+        coJustRun { bleTransport.stop() }
+        every { hpkeEngine.decrypt(any(), any()) } returns deviceResponse.copyOf()
+        every { trustStore.loadIacaRoots() } returns listOf(certificate)
+        every { trustStore.verifyChain(any(), any(), any()) } returns true
+        every { coseVerifier.verifyIssuer(any(), any(), any()) } returns VerifiedIssuer(certificate, emptyMap())
+        every { coseVerifier.verifyDeviceSignature(any(), any(), any()) } returns false
+
+        val sessionManager = SessionManager(
+            hpkeEngine,
+            keyProvider,
+            coseVerifier,
+            trustStore,
+            presentationBuilder,
+            webTransport,
+            nfcTransport,
+            bleTransport,
+            fixedClock,
+        )
+
+        val session = sessionManager.createSession(TransportType.WEB)
+        val result = sessionManager.decryptAndVerify(session, deviceResponse.copyOf())
+
+        assertFalse(result.isSuccess)
+        coVerify(exactly = 1) { webTransport.stop() }
+        val activeField = SessionManager::class.java.getDeclaredField("activeSession").apply { isAccessible = true }
+        assertTrue(activeField.get(sessionManager) == null)
+    }
+
+    @Test
+    fun `exception during verification still cleans up`() = runTest {
+        val keyPair = KeyPairGenerator.getInstance("EC").apply { initialize(256) }.generateKeyPair()
+        val certificate = selfSignedCertificate(keyPair)
+        val deviceResponse = deviceResponse(certificate)
+
+        coJustRun { hpkeEngine.initRecipient(any()) }
+        coJustRun { keyProvider.ensureKey(any()) }
+        every { keyProvider.getPublicKeyBytes() } returns ByteArray(32) { 9 }
+        every { presentationBuilder.requestedAttributes() } returns emptyList()
+        every { presentationBuilder.minimize(any()) } returns emptyMap()
+        every { webTransport.stage(any()) } returns Unit
+        coEvery { webTransport.start(any()) } returns EngagementSession("session", "payload".encodeToByteArray())
+        coJustRun { webTransport.stop() }
+        every { hpkeEngine.decrypt(any(), any()) } returns deviceResponse.copyOf()
+        every { trustStore.loadIacaRoots() } returns listOf(certificate)
+        every { coseVerifier.verifyIssuer(any(), any(), any()) } throws VerificationError.IssuerUntrusted("boom")
+
+        val sessionManager = SessionManager(
+            hpkeEngine,
+            keyProvider,
+            coseVerifier,
+            trustStore,
+            presentationBuilder,
+            webTransport,
+            nfcTransport,
+            bleTransport,
+            fixedClock,
+        )
+
+        val session = sessionManager.createSession(TransportType.WEB)
+        runCatching { sessionManager.decryptAndVerify(session, deviceResponse.copyOf()) }
+        coVerify(exactly = 1) { webTransport.stop() }
+        val activeField = SessionManager::class.java.getDeclaredField("activeSession").apply { isAccessible = true }
+        assertTrue(activeField.get(sessionManager) == null)
     }
 
     private fun deviceResponse(certificate: X509Certificate): ByteArray {

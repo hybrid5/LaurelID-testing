@@ -8,6 +8,7 @@ import android.nfc.tech.Ndef
 import android.os.Bundle
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.qrcode.QRCodeWriter
+import com.laurelid.BuildConfig
 import com.laurelid.auth.ISO18013Parser
 import com.laurelid.util.Logger
 import java.lang.ref.WeakReference
@@ -151,7 +152,9 @@ class NfcEngagementTransport @Inject constructor(
             )
             sessionRef.set(updated)
             sessionFlow.value = updated
-            Logger.i(TAG, "NFC engagement payloadHash=${ISO18013Parser.hashPreview(payload)}")
+            if (BuildConfig.DEBUG) {
+                Logger.d(TAG, "NFC engagement payloadHash=${ISO18013Parser.hashPreview(payload)}")
+            }
         } catch (t: Throwable) {
             Logger.e(TAG, "Failed to read NFC tag", t)
         } finally {

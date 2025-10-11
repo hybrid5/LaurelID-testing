@@ -1,7 +1,7 @@
 [versions]
 agp = "8.13.0"
-kotlin = "2.1.0"
-ksp = "2.1.0-1.0.28"
+kotlin = "2.0.21"
+ksp = "2.0.21-1.0.27"
 zxing = "3.5.3"
 okio = "3.7.0"
 
@@ -27,7 +27,7 @@ okhttp = "4.12.0"
 retrofit = "2.11.0"
 
 # Kotlin
-kotlin-bom = "2.1.0"
+kotlin-bom = "2.0.21"
 kotlinx-coroutines = "1.10.2"
 
 # DI / DB
@@ -57,6 +57,7 @@ arch-testing = "2.2.0"
 r8 = "8.5.28"
 detekt = "1.23.8"
 ktlint = "13.1.0"
+foojayResolver = "0.9.0"
 
 # Performance / baseline profile
 profileinstaller = "1.4.1"            # library
@@ -168,6 +169,9 @@ kotlin-kapt         = { id = "org.jetbrains.kotlin.kapt",     version.ref = "kot
 kotlin-parcelize    = { id = "org.jetbrains.kotlin.plugin.parcelize", version.ref = "kotlin" }
 ksp                 = { id = "com.google.devtools.ksp", version.ref = "ksp" }
 hilt-android-plugin = { id = "com.google.dagger.hilt.android", version.ref = "hilt" }
+ktlint              = { id = "org.jlleitschuh.gradle.ktlint", version.ref = "ktlint" }
+detekt              = { id = "io.gitlab.arturbosch.detekt", version.ref = "detekt" }
 
 # Baseline profile Gradle plugin (separate version from the profileinstaller lib)
 androidx-baselineprofile = { id = "androidx.baselineprofile", version.ref = "baselineprofile-plugin" }
+foojayResolver = { id = "org.gradle.toolchains.foojay-resolver-convention", version.ref = "foojayResolver" }

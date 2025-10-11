@@ -8,15 +8,15 @@ import org.jlleitschuh.gradle.ktlint.KtlintExtension
 import org.gradle.kotlin.dsl.configure
 
 plugins {
-  id("com.android.application")              version "8.13.0" apply false
-  id("com.android.library")                  version "8.13.0" apply false
-  id("org.jetbrains.kotlin.android")         version "2.1.0" apply false
-  id("org.jetbrains.kotlin.plugin.parcelize")version "2.1.0" apply false
-  id("com.google.devtools.ksp")              version "2.1.0-1.0.28" apply false
-  id("com.google.dagger.hilt.android")       version "2.51.1" apply false
-  id("org.jlleitschuh.gradle.ktlint")        version "13.1.0" apply false
-  id("io.gitlab.arturbosch.detekt")          version "1.23.8" apply false
-  id("androidx.baselineprofile")             version "1.2.3" apply false
+  alias(libs.plugins.android.application) apply false
+  alias(libs.plugins.android.library) apply false
+  alias(libs.plugins.kotlin.android) apply false
+  alias(libs.plugins.kotlin.parcelize) apply false
+  alias(libs.plugins.ksp) apply false
+  alias(libs.plugins.hilt.android.plugin) apply false
+  alias(libs.plugins.ktlint) apply false
+  alias(libs.plugins.detekt) apply false
+  alias(libs.plugins.androidx.baselineprofile) apply false
 }
 
 subprojects {

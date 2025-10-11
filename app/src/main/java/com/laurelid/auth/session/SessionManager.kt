@@ -22,7 +22,7 @@ import javax.inject.Singleton
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
-/** Coordinates QR/NFC/BLE engagements and cryptographic verification. */
+/** Coordinates QR/NFC engagements and cryptographic verification. */
 @Singleton
 class SessionManager @Inject constructor(
     private val hpkeEngine: HpkeEngine,
@@ -32,7 +32,6 @@ class SessionManager @Inject constructor(
     private val presentationBuilder: PresentationRequestBuilder,
     private val webTransport: WebEngagementTransport,
     private val nfcTransport: NfcEngagementTransport,
-    private val bleTransport: BleEngagementTransport,
     private val clock: Clock,
 ) {
 
@@ -131,7 +130,6 @@ class SessionManager @Inject constructor(
         val transport = when (preferred) {
             TransportType.WEB -> SessionTransport(TransportType.WEB, webTransport)
             TransportType.NFC -> SessionTransport(TransportType.NFC, nfcTransport)
-            TransportType.BLE -> SessionTransport(TransportType.BLE, bleTransport)
         }
         if (transport.type == TransportType.WEB) webTransport.stage(request)
         return transport

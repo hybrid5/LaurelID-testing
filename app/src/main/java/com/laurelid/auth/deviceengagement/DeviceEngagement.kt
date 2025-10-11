@@ -6,7 +6,6 @@ data class DeviceEngagement(
     val version: Int,
     val web: TransportDescriptor?,
     val nfc: TransportDescriptor?,
-    val ble: TransportDescriptor?,
 )
 
 data class TransportDescriptor(
@@ -19,5 +18,4 @@ data class TransportDescriptor(
 enum class TransportType {
     WEB,
     NFC,
-    BLE,
 }

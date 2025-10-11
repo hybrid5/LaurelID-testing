@@ -3,7 +3,7 @@
 ## Feature Flags
 - `BuildConfig.USE_OFFLINE_TEST_VECTORS` – enable deterministic HPKE/COSE replay using the bundled sample vectors.
 - `BuildConfig.DEVPROFILE_MODE` – bypass issuer PKI validation and allow Apple developer-profile device chains while still enforcing device signature checks.
-- `BuildConfig.TRANSPORT_QR_ENABLED` / `TRANSPORT_NFC_ENABLED` / `TRANSPORT_BLE_ENABLED` – gate available engagement transports at runtime.
+- `BuildConfig.TRANSPORT_QR_ENABLED` / `TRANSPORT_NFC_ENABLED` – gate available engagement transports at runtime.
 
 Toggle flags via Gradle `buildConfigField` overrides or by creating dedicated product flavors if you need persistent variants.
 

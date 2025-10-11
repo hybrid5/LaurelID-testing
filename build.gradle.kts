@@ -50,28 +50,36 @@ subprojects {
   }
 
   afterEvaluate {
-    val implementationConfiguration = configurations.findByName("implementation")
     val usesKotlin = plugins.hasPlugin("org.jetbrains.kotlin.android") ||
       plugins.hasPlugin("org.jetbrains.kotlin.jvm")
 
-    if (implementationConfiguration == null || !usesKotlin) return@afterEvaluate
+    if (!usesKotlin) return@afterEvaluate
+
+    val configurationsToAlign = listOf(
+      "implementation",
+      "androidTestImplementation",
+      "testImplementation",
+    )
 
     dependencies {
-      val hasKotlinBom = implementationConfiguration.dependencies.any { dependency ->
-        dependency.group == "org.jetbrains.kotlin" && dependency.name == "kotlin-bom"
-      }
-      if (!hasKotlinBom) {
-        add("implementation", platform("org.jetbrains.kotlin:kotlin-bom:$kotlinVersion"))
-      }
-      constraints {
-        add("implementation", "org.jetbrains.kotlin:kotlin-stdlib:$kotlinVersion") {
-          version { strictly(kotlinVersion) }
-          because("Align Kotlin stdlib to version catalog")
+      configurationsToAlign.forEach { configurationName ->
+        val configuration = configurations.findByName(configurationName) ?: return@forEach
+        val hasKotlinBom = configuration.dependencies.any { dependency ->
+          dependency.group == "org.jetbrains.kotlin" && dependency.name == "kotlin-bom"
         }
-        coroutineModules.forEach { module ->
-          add("implementation", "$module:$coroutinesVersion") {
-            version { strictly(coroutinesVersion) }
-            because("Align Kotlin coroutines to version catalog")
+        if (!hasKotlinBom) {
+          add(configurationName, platform("org.jetbrains.kotlin:kotlin-bom:$kotlinVersion"))
+        }
+        constraints {
+          add(configurationName, "org.jetbrains.kotlin:kotlin-stdlib:$kotlinVersion") {
+            version { strictly(kotlinVersion) }
+            because("Align Kotlin stdlib to version catalog")
+          }
+          coroutineModules.forEach { module ->
+            add(configurationName, "$module:$coroutinesVersion") {
+              version { strictly(coroutinesVersion) }
+              because("Align Kotlin coroutines to version catalog")
+            }
           }
         }
       }

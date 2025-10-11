@@ -1,0 +1,9 @@
+{
+  "info": "LaurelID instrumentation vector",
+  "kem": "DHKEM(X25519)",
+  "kdf": "HKDF-SHA256",
+  "aead": "AES-256-GCM",
+  "ephemeral_private_key_b64": "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA=",
+  "aad_b64": "dmVyaWZpZXItdHJhbnNjcmlwdC1iaW5kaW5n",
+  "plaintext_b64": "TGF1cmVsSUQgaW5zdHJ1bWVudGF0aW9uIEhQS0UgcGxhaW50ZXh0"
+}

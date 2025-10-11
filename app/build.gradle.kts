@@ -39,7 +39,6 @@ android {
     buildConfigField("boolean", "DEVPROFILE_MODE", "false")
     buildConfigField("boolean", "TRANSPORT_QR_ENABLED", "true")
     buildConfigField("boolean", "TRANSPORT_NFC_ENABLED", "true")
-    buildConfigField("boolean", "TRANSPORT_BLE_ENABLED", "false")
     buildConfigField("boolean", "DEV_MODE", "false")
     buildConfigField("boolean", "ALLOW_PLAINTEXT_TRUST_CACHE_FOR_TESTS", "false")
   }
@@ -225,6 +224,11 @@ dependencies {
   testImplementation(libs.robolectric)
   testImplementation(libs.arch.core.testing)
   testImplementation(libs.androidx.test.core)
+  testImplementation(libs.cose)
+  testImplementation(libs.cbor)
+  testImplementation(libs.bouncycastle.bcprov)
+  testImplementation(libs.bouncycastle.bcpkix)
+  testImplementation(libs.bouncycastle.bcutil)
 
   androidTestImplementation(libs.androidx.test.ext.junit)
   androidTestImplementation(libs.espresso.core)

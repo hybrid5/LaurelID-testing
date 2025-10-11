@@ -9,7 +9,6 @@ data class DeviceEngagement(
     val version: Int,
     val qr: TransportDescriptor? = null,
     val nfc: TransportDescriptor? = null,
-    val ble: TransportDescriptor? = null,
 )
 
 /**
@@ -24,7 +23,7 @@ data class TransportDescriptor(
 )
 
 /** Kiosk supported transport types. */
-enum class TransportType { QR, NFC, BLE }
+enum class TransportType { QR, NFC }
 
 /** Factory that selects the best available transport for the current session. */
 class TransportFactory @javax.inject.Inject constructor(
@@ -36,13 +35,11 @@ class TransportFactory @javax.inject.Inject constructor(
             val descriptor = when (candidate) {
                 TransportType.QR -> engagement.qr
                 TransportType.NFC -> engagement.nfc
-                TransportType.BLE -> engagement.ble
             }
             if (descriptor != null) {
                 return when (candidate) {
                     TransportType.QR -> QrTransport.fromDescriptor(descriptor)
                     TransportType.NFC -> NfcTransport.fromDescriptor(descriptor) { nfcAdapterProvider.get() }
-                    TransportType.BLE -> BleTransport.fromDescriptor(descriptor)
                 }
             }
         }
@@ -50,8 +47,7 @@ class TransportFactory @javax.inject.Inject constructor(
     }
 
     private fun orderedCandidates(preferred: TransportType): List<TransportType> = when (preferred) {
-        TransportType.QR -> listOf(TransportType.QR, TransportType.NFC, TransportType.BLE)
-        TransportType.NFC -> listOf(TransportType.NFC, TransportType.QR, TransportType.BLE)
-        TransportType.BLE -> listOf(TransportType.BLE, TransportType.NFC, TransportType.QR)
+        TransportType.QR -> listOf(TransportType.QR, TransportType.NFC)
+        TransportType.NFC -> listOf(TransportType.NFC, TransportType.QR)
     }
 }

@@ -1,0 +1,12 @@
+{
+  "root_seed_b64": "ERITFBUWFxgZGhscHR4fICEiIyQlJicoKSorLC0uLzA=",
+  "issuer_seed_b64": "QkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWltcXV5fYGE=",
+  "device_seed_b64": "c3R1dnd4eXp7fH1+f4CBgoOEhYaHiImKi4yNjo+QkZI=",
+  "transcript_b64": "dmVjdG9yLXNlc3Npb24tdHJhbnNjcmlwdA==",
+  "claims": {
+    "given_name": "Vector",
+    "family_name": "Holder",
+    "age_over_21": true,
+    "portrait": "cG9ydHJhaXQtYnl0ZXM="
+  }
+}

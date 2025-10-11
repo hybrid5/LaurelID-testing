@@ -60,7 +60,6 @@ class KioskViewModel @Inject constructor(
                     val waiting = when (preferred) {
                         TransportType.WEB -> "Waiting for wallet…"
                         TransportType.NFC -> "Waiting for NFC tap…"
-                        TransportType.BLE -> "Waiting for BLE wallet…"
                     }
                     _state.update { it.copy(status = waiting, loading = false) }
                 }

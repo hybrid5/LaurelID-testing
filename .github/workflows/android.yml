@@ -25,17 +25,13 @@ jobs:
           java-version: '21'
           cache: gradle
 
-      - name: Install Android SDK
+      - name: Prepare Android SDK
         uses: android-actions/setup-android@v3
-
-      - name: Accept licenses and install components
-        run: |
-          yes | sdkmanager --licenses
-          sdkmanager --install \
-            "cmdline-tools;latest" \
-            "platform-tools" \
-            "platforms;android-36" \
-            "build-tools;36.0.0"
+        with:
+          packages: |
+            platforms;android-36
+            build-tools;35.0.0
+            platform-tools
 
       - name: Cache KSP artifacts
         uses: actions/cache@v4

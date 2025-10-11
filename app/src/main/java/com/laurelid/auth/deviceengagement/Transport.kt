@@ -13,7 +13,7 @@ import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withTimeout
 
 /**
- * Sealed transport hierarchy for Verify-with-Wallet engagements (QR/Web, NFC, BLE).
+ * Sealed transport hierarchy for Verify-with-Wallet engagements (QR/Web, NFC).
  */
 sealed class Transport(
     private val descriptor: TransportDescriptor,
@@ -97,13 +97,6 @@ class NfcTransport private constructor(descriptor: TransportDescriptor) : Transp
     }
 }
 
-class BleTransport private constructor(descriptor: TransportDescriptor) : Transport(descriptor, TAG) {
-    companion object {
-        private const val TAG = "BleTransport"
-        fun fromDescriptor(descriptor: TransportDescriptor): BleTransport = BleTransport(descriptor)
-    }
-}
-
 /** Wrapper for COSE payloads emitted by the wallet. */
 data class TransportMessage(
     val payload: ByteArray,
@@ -120,7 +113,6 @@ class DeviceEngagementTransportFactory @Inject constructor() : TransportFactory 
     override fun create(deviceEngagement: DeviceEngagement): Transport {
         deviceEngagement.web?.let { return WebTransport.fromDescriptor(it) }
         deviceEngagement.nfc?.let { return NfcTransport.fromDescriptor(it) }
-        deviceEngagement.ble?.let { return BleTransport.fromDescriptor(it) }
         throw MdocParseException(
             MdocError.UnsupportedTransport("No supported transports were advertised in the device engagement")
         )

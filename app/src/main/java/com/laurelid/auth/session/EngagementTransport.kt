@@ -17,7 +17,6 @@ import java.util.UUID
 import java.util.concurrent.atomic.AtomicReference
 import javax.inject.Inject
 import javax.inject.Singleton
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import com.laurelid.auth.session.SessionManager.VerificationRequest
@@ -170,16 +169,6 @@ class NfcEngagementTransport @Inject constructor(
                     NfcAdapter.FLAG_READER_SKIP_NDEF_CHECK or
                     NfcAdapter.FLAG_READER_NO_PLATFORM_SOUNDS
     }
-}
-
-@Singleton
-class BleEngagementTransport @Inject constructor() : EngagementTransport {
-    override suspend fun start(request: VerificationRequest): EngagementSession {
-        delay(100)
-        return EngagementSession("ble-disabled", ByteArray(0))
-    }
-
-    override suspend fun stop() = Unit
 }
 
 fun interface NfcAdapterProvider {

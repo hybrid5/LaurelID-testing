@@ -28,6 +28,9 @@ class ResourceTrustStore @Inject constructor(
         val anchors = bootstrap.anchors()
         if (anchors.isNotEmpty()) return anchors
         val refreshed = bootstrap.refreshAnchors()
+        if (refreshed.isEmpty()) {
+            throw TrustAnchorsUnavailable("No production IACA anchors available")
+        }
         return refreshed
     }
 

@@ -21,9 +21,9 @@ Toggle flags via Gradle `buildConfigField` overrides or by creating dedicated pr
    Surface this value to any out-of-band provisioning workflow (e.g., operator portal).
 
 ## Updating IACA Trust Roots
-- Bundled roots live at `app/src/main/res/raw/iaca_roots.pem`.
-- Replace the PEM bundle when DHS/IACA publishes updates. Keep the newest roots first and re-run the instrumented `TrustStoreImplTest` to verify loadability.
-- For staged rollouts, add the new PEM to the staging flavor only, validate, then promote.
+- Bundled roots live as `.cer` files under `app/src/main/assets/trust/iaca/` (see the README in that directory for expected filenames).
+- Replace the DER certificates when DHS/IACA publishes updates, then re-run `verifyProdAnchors` (or any `assemble*Release` target) to confirm the new anchors parse successfully.
+- For staged rollouts, keep staging and production directories in sync so that configuration cache hits remain valid across environments.
 
 ## Offline Test Vectors
 - JSON sample lives at `app/src/main/res/raw/sample_hpke_vector.json`.

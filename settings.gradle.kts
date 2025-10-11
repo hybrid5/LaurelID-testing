@@ -1,5 +1,4 @@
 // settings.gradle.kts
-import java.io.File
 import org.gradle.api.initialization.resolve.RepositoriesMode
 
 pluginManagement {
@@ -18,18 +17,6 @@ pluginManagement {
       }
     }
   }
-}
-
-plugins {
-  val foojayResolverVersion = File(rootDir, "gradle/catalogs/libs.versions.toml")
-    .useLines { lines ->
-      lines.firstOrNull { it.trim().startsWith("foojayResolver =") }
-        ?.substringAfter("=")
-        ?.trim()
-        ?.trim('"')
-    }
-    ?: error("Version foojayResolver not found in version catalog")
-  id("org.gradle.toolchains.foojay-resolver-convention") version foojayResolverVersion
 }
 
 dependencyResolutionManagement {

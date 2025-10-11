@@ -82,10 +82,15 @@ class AssetTrustProvider @Inject constructor(
         val assets = context.assets
         val certificates = mutableListOf<X509Certificate>()
         val factory = CertificateFactory.getInstance("X.509")
-        collectCertificates(assets, assetPath.trim('/')) { path ->
+        val normalizedPath = assetPath.trim('/')
+        val root = if (normalizedPath.isEmpty()) "" else normalizedPath
+        val discovered = collectCertificates(assets, root, root) { path ->
             assets.open(path).use { input ->
                 certificates += factory.generateCertificate(input) as X509Certificate
             }
+        }
+        if (discovered == 0) {
+            throw IllegalStateException("No trust anchors found in assets://$root")
         }
         return certificates
     }
@@ -93,14 +98,22 @@ class AssetTrustProvider @Inject constructor(
     private fun collectCertificates(
         assets: AssetManager,
         path: String,
+        rootPath: String,
         onFile: (String) -> Unit,
-    ) {
+    ): Int {
         val directory = if (path.isEmpty()) "" else path
-        val entries = runCatching { assets.list(directory) }.getOrNull() ?: return
+        val entries = runCatching { assets.list(directory) }.getOrNull()
+            ?: if (directory == rootPath) {
+                throw IllegalStateException("Trust anchor directory missing at assets://$rootPath")
+            } else {
+                return 0
+            }
+        var count = 0
         for (entry in entries) {
             val childPath = if (directory.isEmpty()) entry else "$directory/$entry"
             if (entry.endsWith(".cer", ignoreCase = true)) {
                 onFile(childPath)
+                count += 1
                 continue
             }
             val nested = try {
@@ -109,9 +122,10 @@ class AssetTrustProvider @Inject constructor(
                 null
             }
             if (!nested.isNullOrEmpty()) {
-                collectCertificates(assets, childPath, onFile)
+                count += collectCertificates(assets, childPath, rootPath, onFile)
             }
         }
+        return count
     }
 
     companion object {

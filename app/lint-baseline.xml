@@ -380,13 +380,6 @@
 
     <issue
         id="UnusedResources"
-        message="The resource `R.raw.iaca_roots` appears to be unused">
-        <location
-            file="src/main/res/raw/iaca_roots.pem"/>
-    </issue>
-
-    <issue
-        id="UnusedResources"
         message="The resource `R.string.scanner_overlay_footer` appears to be unused"
         errorLine1="    &lt;string name=&quot;scanner_overlay_footer&quot;>Privacy-first verification in progress.&lt;/string>"
         errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">

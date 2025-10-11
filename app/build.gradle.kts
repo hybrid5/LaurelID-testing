@@ -2,6 +2,7 @@
 import java.util.Properties
 import java.security.cert.CertificateFactory
 import java.security.cert.X509Certificate
+import org.gradle.api.GradleException
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
@@ -26,6 +27,7 @@ val playIntegrityProjectNumber: Long = run {
 android {
   namespace = "com.laurelid"
   compileSdk = 36
+  buildToolsVersion = "36.0.0"
 
   defaultConfig {
     applicationId = "com.laurelid"
@@ -54,7 +56,7 @@ android {
       buildConfigField("long","TRUST_LIST_CACHE_STALE_TTL_MILLIS","259200000L")
       buildConfigField("long","TRUST_LIST_PIN_EXPIRY_GRACE_MILLIS","1209600000L")
       buildConfigField("boolean","DEV_MODE","true")
-      buildConfigField("String","TRUST_LIST_MANIFEST_ROOT_CERT","\"MIIBmzCCAUGgAwIBAgIULLaYvR7QSKLfmVPR5XFwG8lyFsowCgYIKoZIzj0EAwIwIzEhMB8GA1UEAwwYTGF1cmVsSUQgVGVzdCBUcnVzdCBSb290MB4XDTI1MTAwMjAwMDQzMloXDTM1MDkzMDAwMDQzMlowIzEhMB8GA1UEAwwYTGF1cmVsSUQgVGVzdCBUcnVzdCBSb290MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEyrjywG4CQfVfu7CtKnWRmTQUR9OX/aNoWV6kJDiLjDOzywT8Q+0K3kALe/ia4u2VBOjjKYMS2jcqcs5TJZwrsqNTMFEwHQYDVR0OBBYEFKIg2A8F65q0WEuYC9We9JIxIloHMB8GA1UdIwQYMBaAFKIg2A8F65q0WEuYC9We9JIxIloHMA8GA1UdEwEB/wQFMAMBAf8wCgYIKoZIzj0EAwIDSAAwRQIhAPHz3+yopBOVPO6QBvlhHkC9iUNp4Hw6K2zUJOr9MEyVAiA7/885IjIOYQod4TL7qKqu4pDchuhJVvzd+NK/BQz3EQ==\"")
+      buildConfigField("String","TRUST_LIST_MANIFEST_ROOT_CERT","\"\"")
       buildConfigField("boolean","USE_APPLE_EXTERNAL_VERIFIER","true")
     }
     create("production") {
@@ -66,7 +68,7 @@ android {
       buildConfigField("long","TRUST_LIST_CACHE_STALE_TTL_MILLIS","259200000L")
       buildConfigField("long","TRUST_LIST_PIN_EXPIRY_GRACE_MILLIS","1209600000L")
       buildConfigField("boolean","DEV_MODE","false")
-      buildConfigField("String","TRUST_LIST_MANIFEST_ROOT_CERT","\"MIIBmzCCAUGgAwIBAgIULLaYvR7QSKLfmVPR5XFwG8lyFsowCgYIKoZIzj0EAwIwIzEhMB8GA1UEAwwYTGF1cmVsSUQgVGVzdCBUcnVzdCBSb290MB4XDTI1MTAwMjAwMDQzMloXDTM1MDkzMDAwMDQzMlowIzEhMB8GA1UEAwwYTGF1cmVsSUQgVGVzdCBUcnVzdCBSb290MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEyrjywG4CQfVfu7CtKnWRmTQUR9OX/aNoWV6kJDiLjDOzywT8Q+0K3kALe/ia4u2VBOjjKYMS2jcqcs5TJZwrsqNTMFEwHQYDVR0OBBYEFKIg2A8F65q0WEuYC9We9JIxIloHMB8GA1UdIwQYMBaAFKIg2A8F65q0WEuYC9We9JIxIloHMA8GA1UdEwEB/wQFMAMBAf8wCgYIKoZIzj0EAwIDSAAwRQIhAPHz3+yopBOVPO6QBvlhHkC9iUNp4Hw6K2zUJOr9MEyVAiA7/885IjIOYQod4TL7qKqu4pDchuhJVvzd+NK/BQz3EQ==\"")
+      buildConfigField("String","TRUST_LIST_MANIFEST_ROOT_CERT","\"\"")
       buildConfigField("boolean","USE_APPLE_EXTERNAL_VERIFIER","false")
     }
   }
@@ -165,6 +167,32 @@ androidComponents {
       releaseRuntimeClasspath.extendsFrom(configurations.getByName("${variant.name}RuntimeClasspath"))
     }
   }
+}
+
+val verifyProdAnchors by tasks.registering {
+  group = "verification"
+  description = "Ensures production trust anchors are packaged with the APK"
+  val anchorsDir = layout.projectDirectory.dir("src/main/assets/trust/iaca")
+  inputs.dir(anchorsDir)
+  doLast {
+    val anchors = anchorsDir.asFileTree.matching { include("**/*.cer") }.files
+    if (anchors.isEmpty()) {
+      throw GradleException("Production trust anchors missing under src/main/assets/trust/iaca")
+    }
+    val factory = CertificateFactory.getInstance("X.509")
+    anchors.forEach { anchor ->
+      anchor.inputStream().use { stream ->
+        runCatching { factory.generateCertificate(stream) as X509Certificate }
+          .onFailure { error ->
+            throw GradleException("Invalid trust anchor ${anchor.name}: ${error.message}", error)
+          }
+      }
+    }
+  }
+}
+
+tasks.matching { it.name.startsWith("assemble") && it.name.endsWith("Release") }.configureEach {
+  dependsOn(verifyProdAnchors)
 }
 
 tasks.register("connectedProductionReleaseAndroidTest") {

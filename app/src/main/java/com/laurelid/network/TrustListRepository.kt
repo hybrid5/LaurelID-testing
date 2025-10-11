@@ -18,6 +18,13 @@ import org.json.JSONArray
 import org.json.JSONObject
 import kotlin.math.min
 
+private fun JSONObject.optNullableString(key: String): String? {
+    if (!has(key) || isNull(key)) {
+        return null
+    }
+    return getString(key)
+}
+
 open class TrustListRepository internal constructor(
     api: TrustListApi,
     private val cacheDir: File,
@@ -102,9 +109,10 @@ open class TrustListRepository internal constructor(
         val isFresh = current != null && freshDuration != null &&
                 (freshDuration == Long.MAX_VALUE || age <= freshDuration)
 
-        if (isFresh && current != null) {
+        if (isFresh) {
+            val freshState = checkNotNull(current)
             Logger.d(TAG, "Returning in-memory trust list (fresh)")
-            return Snapshot(current.entries, current.revokedSerialNumbers, stale = false)
+            return Snapshot(freshState.entries, freshState.revokedSerialNumbers, stale = false)
         }
 
         return try {
@@ -410,25 +418,25 @@ open class TrustListRepository internal constructor(
             if (fetchedAt <= 0L) {
                 return@withContext null
             }
-            val cachedBaseUrl = json.optString(KEY_BASE_URL, null)
+            val cachedBaseUrl = json.optNullableString(KEY_BASE_URL)
             val currentBaseUrl = baseUrl
             if (!TrustListEndpointPolicy.endpointsMatch(cachedBaseUrl, currentBaseUrl)) {
                 Logger.w(TAG, "Discarding trust list cache for mismatched endpoint")
                 return@withContext null
             }
 
-            val manifest = json.optString(KEY_MANIFEST, null)?.takeIf { it.isNotBlank() }
+            val manifest = json.optNullableString(KEY_MANIFEST)?.takeIf { it.isNotBlank() }
                 ?: return@withContext null
-            val signature = json.optString(KEY_SIGNATURE, null)?.takeIf { it.isNotBlank() }
+            val signature = json.optNullableString(KEY_SIGNATURE)?.takeIf { it.isNotBlank() }
                 ?: return@withContext null
             val chainArray = json.optJSONArray(KEY_CERTIFICATE_CHAIN) ?: return@withContext null
-            val expectedChecksum = json.optString(KEY_MANIFEST_CHECKSUM, null)?.takeIf { it.isNotBlank() }
+            val expectedChecksum = json.optNullableString(KEY_MANIFEST_CHECKSUM)?.takeIf { it.isNotBlank() }
                 ?: run {
                     Logger.w(TAG, "Stored trust list cache missing checksum; deleting cache")
                     cacheStorage.delete()
                     return@withContext null
                 }
-            val expectedVersion = json.optString(KEY_MANIFEST_VERSION, null)?.takeIf { it.isNotBlank() }
+            val expectedVersion = json.optNullableString(KEY_MANIFEST_VERSION)?.takeIf { it.isNotBlank() }
                 ?: run {
                     Logger.w(TAG, "Stored trust list cache missing version; deleting cache")
                     cacheStorage.delete()
@@ -579,7 +587,7 @@ open class TrustListRepository internal constructor(
             val directory = File(context.filesDir, CACHE_DIRECTORY)
             val cacheFile = File(directory, CACHE_FILE_NAME)
             val sanitizedBaseUrl = TrustListEndpointPolicy.requireEndpointAllowed(baseUrl)
-            val anchors = TrustListManifestVerifier.fromBase64Anchors(BuildConfig.TRUST_LIST_MANIFEST_ROOT_CERT)
+            val anchors = TrustListManifestVerifier.fromBase64Anchors(manifestRootCertificate())
             val manifestVerifier = TrustListManifestVerifier(anchors)
             val seedStorage = AssetTrustListSeedStorage(context, DEFAULT_SEED_ASSET_PATH)
             val seedLoader = TrustListSeedLoader(seedStorage, manifestVerifier)
@@ -594,6 +602,13 @@ open class TrustListRepository internal constructor(
                 manifestVerifier = manifestVerifier,
                 seedLoader = seedLoader,
             )
+        }
+
+        private fun manifestRootCertificate(): String? {
+            return runCatching {
+                val field = BuildConfig::class.java.getField("TRUST_LIST_MANIFEST_ROOT_CERT")
+                (field.get(null) as? String)?.takeIf { it.isNotBlank() }
+            }.getOrNull()
         }
     }
 

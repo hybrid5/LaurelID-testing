@@ -36,7 +36,7 @@ internal class TrustListSeedLoader(
             return null
         }
 
-        val declaredBaseUrl = json.optString(KEY_BASE_URL, null)
+        val declaredBaseUrl = json.optNullableString(KEY_BASE_URL)
         if (!declaredBaseUrl.isNullOrBlank() &&
             !TrustListEndpointPolicy.endpointsMatch(declaredBaseUrl, currentBaseUrl)
         ) {
@@ -44,12 +44,12 @@ internal class TrustListSeedLoader(
             return null
         }
 
-        val manifest = json.optString(KEY_MANIFEST, null)?.takeIf { it.isNotBlank() }
+        val manifest = json.optNullableString(KEY_MANIFEST)?.takeIf { it.isNotBlank() }
             ?: run {
                 Logger.w(TAG, "Seed trust list missing manifest payload")
                 return null
             }
-        val signature = json.optString(KEY_SIGNATURE, null)?.takeIf { it.isNotBlank() }
+        val signature = json.optNullableString(KEY_SIGNATURE)?.takeIf { it.isNotBlank() }
             ?: run {
                 Logger.w(TAG, "Seed trust list missing signature payload")
                 return null
@@ -117,4 +117,11 @@ internal class TrustListSeedLoader(
         private const val KEY_CERTIFICATE_CHAIN = "certificateChain"
         private const val KEY_STALE_TTL_MILLIS = "staleTtlMillis"
     }
+}
+
+private fun JSONObject.optNullableString(key: String): String? {
+    if (!has(key) || isNull(key)) {
+        return null
+    }
+    return getString(key)
 }
